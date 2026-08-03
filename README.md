@@ -21,10 +21,16 @@ difficulty changes per environment based on commanded walking performance.
 
 This initial implementation targets the Isaac Lab checkout at
 `/home/vega/IsaacLab` (`v2.2.1-143-g2ed331acfc`, framework extension `0.48.5`)
-and its bundled Isaac Sim Python. Do not use the machine's Python 3.13
+with the Isaac Sim 5.1 Python 3.11 runtime. Do not use the machine's Python 3.13
 environment for simulation.
 
-## Install
+## Environment Setup
+
+Choose either the existing Conda environment or a clean uv environment. Do not
+activate both at the same time: `isaaclab.sh` gives an active Conda environment
+priority over `VIRTUAL_ENV`.
+
+### Existing Conda Environment
 
 ```bash
 source /home/vega/anaconda3/etc/profile.d/conda.sh
@@ -33,6 +39,46 @@ export PURE_RL_ISAACLAB_ROOT=/home/vega/IsaacLab
 cd /mnt/data/Project/Locomotion/PureRL
 ${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p -m pip install -e source/purerl
 ```
+
+### Clean uv Environment
+
+The installed Isaac Sim 5.1 runtime requires Python 3.11. The commands below
+create `.venv` inside PureRL and install the versions matched by the current
+Isaac Lab checkout. Exit any active Conda environment before activating uv.
+
+```bash
+# Run `conda deactivate` first if CONDA_PREFIX is currently set.
+export PURE_RL_ROOT=/mnt/data/Project/Locomotion/PureRL
+export PURE_RL_ISAACLAB_ROOT=/home/vega/IsaacLab
+
+cd ${PURE_RL_ROOT}
+uv python install 3.11
+uv venv --python 3.11 --seed .venv
+source .venv/bin/activate
+
+# Isaac Sim is distributed from NVIDIA's Python package index.
+uv pip install "isaacsim[all,extscache]==5.1.0" \
+  --extra-index-url https://pypi.nvidia.com
+
+# Install the local Isaac Lab extensions, CUDA PyTorch, and RSL-RL 3.1.2.
+cd ${PURE_RL_ISAACLAB_ROOT}
+./isaaclab.sh -i rsl_rl
+
+# Install this external project into the same uv environment.
+cd ${PURE_RL_ROOT}
+uv pip install -e source/purerl
+```
+
+Verify that the uv environment resolves the intended runtime:
+
+```bash
+python -c "import sys, isaaclab, isaacsim; print(sys.version); print(isaaclab.__file__)"
+python scripts/tools/check_task_config.py --headless
+```
+
+After activation, either `python scripts/...` or
+`${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p scripts/...` uses `.venv/bin/python`.
+Leave the environment with `deactivate`.
 
 Validate the robot files without starting Isaac Sim:
 
