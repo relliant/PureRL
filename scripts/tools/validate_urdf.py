@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Validate the vendored TienKung URDF without requiring Isaac Sim."""
 
-from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
 
+from purerl.config.robot import DEFAULT_URDF_PATH
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-URDF_PATH = PROJECT_ROOT / "assets" / "robot_description" / "tienkung" / "tienkung2_lite.urdf"
+URDF_PATH = DEFAULT_URDF_PATH
 EXPECTED_ACTUATED_JOINTS = 20
 
 
@@ -46,4 +45,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

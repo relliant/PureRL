@@ -1,0 +1,35 @@
+{
+  "baseline_kind": "static_source_contract",
+  "simulator_reference_available": false,
+  "action": {
+    "dimension": 20,
+    "scale": 0.5
+  },
+  "simulation": {
+    "physics_dt": 0.005,
+    "decimation": 4,
+    "step_dt": 0.02,
+    "episode_length_s": 20.0
+  },
+  "observation": {
+    "dimension": 259,
+    "terms": [
+      ["base_linear_velocity", 0, 3],
+      ["base_angular_velocity", 3, 6],
+      ["projected_gravity", 6, 9],
+      ["velocity_command", 9, 12],
+      ["relative_joint_positions", 12, 32],
+      ["joint_velocities", 32, 52],
+      ["previous_action", 52, 72],
+      ["terrain_height_scan", 72, 259]
+    ]
+  },
+  "root_body": "pelvis",
+  "foot_bodies": ["ankle_roll_l_link", "ankle_roll_r_link"],
+  "task_ids": [
+    "PureRL-Velocity-Flat-TienKung-v0",
+    "PureRL-Velocity-Flat-TienKung-Play-v0",
+    "PureRL-Velocity-Rough-TienKung-v0",
+    "PureRL-Velocity-Rough-TienKung-Play-v0"
+  ]
+}

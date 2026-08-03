@@ -1,239 +1,167 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
+#!/usr/bin/env python3
+"""Train a PureRL locomotion task with RSL-RL 3.1."""
 
-"""Script to train RL agent with RSL-RL."""
-
-"""Launch Isaac Sim Simulator first."""
+from __future__ import annotations
 
 import argparse
 import sys
-
-from isaaclab.app import AppLauncher
-
-# local imports
-import cli_args  # isort: skip
-
-# add argparse arguments
-parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
-parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
-parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
-parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
-parser.add_argument(
-    "--agent", type=str, default="rsl_rl_cfg_entry_point", help="Name of the RL agent configuration entry point."
-)
-parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
-parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument(
-    "--pretrained_checkpoint",
-    type=str,
-    default=None,
-    help="Initialize policy weights without resuming the checkpoint's optimizer or iteration.",
-)
-parser.add_argument(
-    "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
-)
-parser.add_argument("--export_io_descriptors", action="store_true", default=False, help="Export IO descriptors.")
-parser.add_argument(
-    "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
-)
-# append RSL-RL cli arguments
-cli_args.add_rsl_rl_args(parser)
-# append AppLauncher cli args
-AppLauncher.add_app_launcher_args(parser)
-args_cli, hydra_args = parser.parse_known_args()
-
-# always enable cameras to record video
-if args_cli.video:
-    args_cli.enable_cameras = True
-
-# clear out sys.argv for Hydra
-sys.argv = [sys.argv[0]] + hydra_args
-
-# launch omniverse app
-app_launcher = AppLauncher(args_cli)
-simulation_app = app_launcher.app
-
-"""Check for minimum supported RSL-RL version."""
-
-import importlib.metadata as metadata
-import platform
-
-from packaging import version
-
-# check minimum supported rsl-rl version
-RSL_RL_VERSION = "3.0.1"
-installed_version = metadata.version("rsl-rl-lib")
-if version.parse(installed_version) < version.parse(RSL_RL_VERSION):
-    if platform.system() == "Windows":
-        cmd = [r".\isaaclab.bat", "-p", "-m", "pip", "install", f"rsl-rl-lib=={RSL_RL_VERSION}"]
-    else:
-        cmd = ["./isaaclab.sh", "-p", "-m", "pip", "install", f"rsl-rl-lib=={RSL_RL_VERSION}"]
-    print(
-        f"Please install the correct version of RSL-RL.\nExisting version is: '{installed_version}'"
-        f" and required version is: '{RSL_RL_VERSION}'.\nTo install the correct version, run:"
-        f"\n\n\t{' '.join(cmd)}\n"
-    )
-    exit(1)
-
-"""Rest everything follows."""
-
-import gymnasium as gym
-import logging
-import os
-import torch
+import traceback
 from datetime import datetime
+from pathlib import Path
 
-from rsl_rl.runners import DistillationRunner, OnPolicyRunner
-
-from isaaclab.envs import (
-    DirectMARLEnv,
-    DirectMARLEnvCfg,
-    DirectRLEnvCfg,
-    ManagerBasedRLEnvCfg,
-    multi_agent_to_single_agent,
-)
-from isaaclab.utils.dict import print_dict
-from isaaclab.utils.io import dump_yaml
-
-from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
-
-import isaaclab_tasks  # noqa: F401
-import purerl.tasks  # noqa: F401
-from isaaclab_tasks.utils import get_checkpoint_path
-from isaaclab_tasks.utils.hydra import hydra_task_config
-
-# import logger
-logger = logging.getLogger(__name__)
-
-# PLACEHOLDER: Extension template (do not remove this comment)
-
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-torch.backends.cudnn.deterministic = False
-torch.backends.cudnn.benchmark = False
+from purerl.app import AppLauncherCfg, IsaacSimLauncher
+from purerl.contracts import TASK_IDS
+from purerl.envs import TienKungLocomotionEnv
+from purerl.registry import get_task_spec
+from purerl.rl import RslRlVecEnvWrapper, find_checkpoint
 
 
-@hydra_task_config(args_cli.task, args_cli.agent)
-def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
-    """Train with RSL-RL agent."""
-    # override configurations with non-hydra CLI arguments
-    agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
-    env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
-    agent_cfg.max_iterations = (
-        args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
-    )
+def main() -> None:
+    args = _parse_args()
+    launcher = IsaacSimLauncher(AppLauncherCfg(headless=not args.show))
+    env = None
+    try:
+        launcher.launch()
+        import torch
+        from rsl_rl.runners import OnPolicyRunner
 
-    # set the environment seed
-    # note: certain randomizations occur in the environment initialization so we set the seed here
-    env_cfg.seed = agent_cfg.seed
-    env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
-    # check for invalid combination of CPU device with distributed training
-    if args_cli.distributed and args_cli.device is not None and "cpu" in args_cli.device:
-        raise ValueError(
-            "Distributed training is not supported when using CPU device. "
-            "Please use GPU device (e.g., --device cuda) for distributed training."
+        spec = get_task_spec(args.task)
+        env_cfg = spec.make_env_cfg()
+        runner_cfg = spec.make_runner_cfg()
+        seed = runner_cfg.seed if args.seed is None else args.seed
+        device = runner_cfg.device if args.device is None else args.device
+        env_cfg = env_cfg.replace(
+            seed=seed,
+            scene=env_cfg.scene.replace(
+                num_envs=env_cfg.scene.num_envs if args.num_envs is None else args.num_envs
+            ),
+            sim=env_cfg.sim.replace(device=device),
         )
-
-    # multi-gpu training configuration
-    if args_cli.distributed:
-        env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"
-        agent_cfg.device = f"cuda:{app_launcher.local_rank}"
-
-        # set seed to have diversity in different threads
-        seed = agent_cfg.seed + app_launcher.local_rank
-        env_cfg.seed = seed
-        agent_cfg.seed = seed
-
-    # specify directory for logging experiments
-    log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
-    log_root_path = os.path.abspath(log_root_path)
-    print(f"[INFO] Logging experiment in directory: {log_root_path}")
-    # specify directory for logging runs: {time-stamp}_{run_name}
-    log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    # The Ray Tune workflow extracts experiment name using the logging line below, hence, do not change it (see PR #2346, comment-2819298849)
-    print(f"Exact experiment name requested from command line: {log_dir}")
-    if agent_cfg.run_name:
-        log_dir += f"_{agent_cfg.run_name}"
-    log_dir = os.path.join(log_root_path, log_dir)
-
-    # set the IO descriptors export flag if requested
-    if isinstance(env_cfg, ManagerBasedRLEnvCfg):
-        env_cfg.export_io_descriptors = args_cli.export_io_descriptors
-    else:
-        logger.warning(
-            "IO descriptors are only supported for manager based RL environments. No IO descriptors will be exported."
+        runner_cfg = runner_cfg.replace(
+            seed=seed,
+            device=device,
+            max_iterations=(
+                runner_cfg.max_iterations if args.max_iterations is None else args.max_iterations
+            ),
+            num_steps_per_env=(
+                runner_cfg.num_steps_per_env
+                if args.num_steps_per_env is None
+                else args.num_steps_per_env
+            ),
+            save_interval=(
+                runner_cfg.save_interval if args.save_interval is None else args.save_interval
+            ),
+            experiment_name=args.experiment_name or runner_cfg.experiment_name,
+            run_name=runner_cfg.run_name if args.run_name is None else args.run_name,
+            logger=runner_cfg.logger if args.logger is None else args.logger,
         )
+        env_cfg.validate()
+        runner_cfg.validate()
+        torch.manual_seed(seed)
 
-    # set the log directory for the environment (works for all environment types)
-    env_cfg.log_dir = log_dir
+        log_root = Path(args.log_root).expanduser().resolve() / runner_cfg.experiment_name
+        log_dir = None if args.no_logging else _make_log_dir(log_root, runner_cfg.run_name)
+        if log_dir is not None:
+            params_dir = log_dir / "params"
+            params_dir.mkdir(parents=True, exist_ok=True)
+            env_cfg.to_yaml(params_dir / "env.yaml")
+            runner_cfg.to_yaml(params_dir / "agent.yaml")
+            print(f"Logging run to {log_dir}", flush=True)
 
-    # create isaac environment
-    env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+        env = TienKungLocomotionEnv(task_id=args.task, cfg=env_cfg)
+        wrapped = RslRlVecEnvWrapper(env, clip_actions=runner_cfg.clip_actions)
+        runner = OnPolicyRunner(
+            wrapped,
+            runner_cfg.to_dict(),
+            log_dir=None if log_dir is None else str(log_dir),
+            device=device,
+        )
+        if log_dir is None:
+            runner.disable_logs = True
+            runner.logger_type = runner_cfg.logger
 
-    # convert to single-agent instance if required by the RL algorithm
-    if isinstance(env.unwrapped, DirectMARLEnv):
-        env = multi_agent_to_single_agent(env)
+        checkpoint = _resolve_checkpoint(args, log_root, runner_cfg)
+        if checkpoint is not None:
+            load_optimizer = args.pretrained_checkpoint is None
+            runner.load(str(checkpoint), load_optimizer=load_optimizer, map_location=device)
+            if not load_optimizer:
+                runner.current_learning_iteration = 0
+            print(f"Loaded checkpoint {checkpoint}", flush=True)
 
-    # save resume path before creating a new log_dir
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
-        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        runner.learn(
+            num_learning_iterations=runner_cfg.max_iterations,
+            init_at_random_ep_len=not args.disable_random_episode_length,
+        )
+        if args.output_checkpoint is not None:
+            output_checkpoint = Path(args.output_checkpoint).expanduser().resolve()
+            output_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            runner.save(str(output_checkpoint))
+            print(f"Saved checkpoint {output_checkpoint}", flush=True)
+        print(
+            f"TRAIN_OK task={args.task} envs={env_cfg.scene.num_envs} "
+            f"iterations={runner_cfg.max_iterations}",
+            flush=True,
+        )
+    except BaseException as exc:
+        print(f"TRAIN_FAILED {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        raise
+    finally:
+        if env is not None:
+            env.close()
+        launcher.close()
 
-    # wrap for video recording
-    if args_cli.video:
-        video_kwargs = {
-            "video_folder": os.path.join(log_dir, "videos", "train"),
-            "step_trigger": lambda step: step % args_cli.video_interval == 0,
-            "video_length": args_cli.video_length,
-            "disable_logger": True,
-        }
-        print("[INFO] Recording videos during training.")
-        print_dict(video_kwargs, nesting=4)
-        env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
-    # wrap around environment for rsl-rl
-    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--task", choices=TASK_IDS, default=TASK_IDS[0])
+    parser.add_argument("--num-envs", type=int)
+    parser.add_argument("--device")
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--max-iterations", type=int)
+    parser.add_argument("--num-steps-per-env", type=int)
+    parser.add_argument("--save-interval", type=int)
+    parser.add_argument("--experiment-name")
+    parser.add_argument("--run-name")
+    parser.add_argument("--logger", choices=("tensorboard", "wandb", "neptune"))
+    parser.add_argument("--log-root", default="logs/rsl_rl")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--load-run", default=".*")
+    parser.add_argument("--load-checkpoint", default="model_.*.pt")
+    parser.add_argument("--pretrained-checkpoint")
+    parser.add_argument("--output-checkpoint")
+    parser.add_argument("--no-logging", action="store_true")
+    parser.add_argument("--disable-random-episode-length", action="store_true")
+    parser.add_argument("--show", action="store_true")
+    args = parser.parse_args()
+    if args.resume and args.pretrained_checkpoint:
+        parser.error("--resume and --pretrained-checkpoint are mutually exclusive")
+    return args
 
-    # create runner from rsl-rl
-    if agent_cfg.class_name == "OnPolicyRunner":
-        runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
-    elif agent_cfg.class_name == "DistillationRunner":
-        runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
-    else:
-        raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
-    # write git state to logs
-    runner.add_git_repo_to_log(__file__)
-    if args_cli.pretrained_checkpoint and agent_cfg.resume:
-        raise ValueError("--pretrained_checkpoint and --resume are mutually exclusive.")
-    if args_cli.pretrained_checkpoint:
-        pretrained_path = os.path.abspath(args_cli.pretrained_checkpoint)
-        if not os.path.isfile(pretrained_path):
-            raise FileNotFoundError(f"Pretrained checkpoint does not exist: {pretrained_path}")
-        print(f"[INFO]: Initializing policy from checkpoint: {pretrained_path}")
-        runner.load(pretrained_path, load_optimizer=False)
-        runner.current_learning_iteration = 0
-    # load the checkpoint
-    elif agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
-        print(f"[INFO]: Loading model checkpoint from: {resume_path}")
-        # load previously trained model
-        runner.load(resume_path)
 
-    # dump the configuration into log-directory
-    dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
-    dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
+def _make_log_dir(log_root: Path, run_name: str) -> Path:
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    name = timestamp if not run_name else f"{timestamp}_{run_name}"
+    directory = log_root / name
+    directory.mkdir(parents=True, exist_ok=False)
+    return directory
 
-    # run training
-    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
 
-    # close the simulator
-    env.close()
+def _resolve_checkpoint(args, log_root, runner_cfg):
+    if args.pretrained_checkpoint:
+        checkpoint = Path(args.pretrained_checkpoint).expanduser().resolve()
+        if not checkpoint.is_file():
+            raise FileNotFoundError(f"Pretrained checkpoint does not exist: {checkpoint}")
+        return checkpoint
+    if args.resume:
+        return find_checkpoint(
+            log_root,
+            load_run=args.load_run or runner_cfg.load_run,
+            load_checkpoint=args.load_checkpoint or runner_cfg.load_checkpoint,
+        )
+    return None
 
 
 if __name__ == "__main__":
-    # run the main function
     main()
-    # close sim app
-    simulation_app.close()

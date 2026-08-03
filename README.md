@@ -1,159 +1,104 @@
 # PureRL: TienKung Multi-Terrain Locomotion
 
-Isaac Lab manager-based reinforcement learning environments for the 20-DOF
-TienKung2 Lite humanoid. The task tracks planar velocity commands on flat and
-procedurally generated rough terrain using RSL-RL PPO.
+PureRL provides standalone Isaac Sim 5.1 locomotion environments for the
+20-DOF TienKung2 Lite humanoid. It uses direct Isaac Sim tensor APIs,
+Gymnasium, PyTorch, and RSL-RL 3.1. No Isaac Lab checkout or `isaaclab*`
+Python package is required.
 
-## Implemented Tasks
+## Tasks
 
 | Gym ID | Purpose |
 | --- | --- |
-| `PureRL-Velocity-Flat-TienKung-v0` | Flat-ground bootstrap training |
+| `PureRL-Velocity-Flat-TienKung-v0` | Flat-ground training |
 | `PureRL-Velocity-Flat-TienKung-Play-v0` | Flat-ground evaluation |
-| `PureRL-Velocity-Rough-TienKung-v0` | Mixed-terrain curriculum training |
-| `PureRL-Velocity-Rough-TienKung-Play-v0` | Mixed-terrain evaluation |
+| `PureRL-Velocity-Rough-TienKung-v0` | Generated-terrain curriculum training |
+| `PureRL-Velocity-Rough-TienKung-Play-v0` | Generated-terrain evaluation |
 
-The rough task contains flat patches, random height fields, ascending and
-descending slopes, ascending and descending stairs, and random blocks. Terrain
-difficulty changes per environment based on commanded walking performance.
+All tasks use 20 joint-position residual actions and the same 259-dimensional
+policy observation. The final 187 values are a pelvis-yaw-frame terrain height
+scan, so flat checkpoints can be loaded directly into rough environments.
 
-## Compatibility
+## Installation
 
-This initial implementation targets the Isaac Lab checkout at
-`/home/vega/IsaacLab` (`v2.2.1-143-g2ed331acfc`, framework extension `0.48.5`)
-with the Isaac Sim 5.1 Python 3.11 runtime. Do not use the machine's Python 3.13
-environment for simulation.
-
-## Environment Setup
-
-Choose either the existing Conda environment or a clean uv environment. Do not
-activate both at the same time: `isaaclab.sh` gives an active Conda environment
-priority over `VIRTUAL_ENV`.
-
-### Existing Conda Environment
+Isaac Sim 5.1 requires Python 3.11. NVIDIA packages require acceptance of the
+Isaac Sim EULA and access to NVIDIA's Python package index.
 
 ```bash
-source /home/vega/anaconda3/etc/profile.d/conda.sh
-conda activate env_isaaclab
-export PURE_RL_ISAACLAB_ROOT=/home/vega/IsaacLab
-cd /mnt/data/Project/Locomotion/PureRL
-${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p -m pip install -e source/purerl
-```
-
-### Clean uv Environment
-
-The installed Isaac Sim 5.1 runtime requires Python 3.11. The commands below
-create `.venv` inside PureRL and install the versions matched by the current
-Isaac Lab checkout. Exit any active Conda environment before activating uv.
-
-```bash
-# Run `conda deactivate` first if CONDA_PREFIX is currently set.
-export PURE_RL_ROOT=/mnt/data/Project/Locomotion/PureRL
-export PURE_RL_ISAACLAB_ROOT=/home/vega/IsaacLab
-
-cd ${PURE_RL_ROOT}
+cd /home/vega/Project/Locomotion/PureRL
 uv python install 3.11
 uv venv --python 3.11 --seed .venv
 source .venv/bin/activate
-
-# Isaac Sim is distributed from NVIDIA's Python package index.
-uv pip install "isaacsim[all,extscache]==5.1.0" \
-  --extra-index-url https://pypi.nvidia.com
-
-# Install the local Isaac Lab extensions, CUDA PyTorch, and RSL-RL 3.1.2.
-cd ${PURE_RL_ISAACLAB_ROOT}
-./isaaclab.sh -i rsl_rl
-
-# Install this external project into the same uv environment.
-cd ${PURE_RL_ROOT}
-uv pip install -e source/purerl
+uv pip install --extra-index-url https://pypi.nvidia.com -e "source/purerl[sim,dev]"
 ```
 
-Verify that the uv environment resolves the intended runtime:
+Validate the local package without starting Isaac Sim:
 
 ```bash
-python -c "import sys, isaaclab, isaacsim; print(sys.version); print(isaaclab.__file__)"
-python scripts/tools/check_task_config.py --headless
+python scripts/tools/validate_urdf.py
+python scripts/tools/check_task_config.py
+pytest -q
 ```
 
-After activation, either `python scripts/...` or
-`${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p scripts/...` uses `.venv/bin/python`.
-Leave the environment with `deactivate`.
+## Simulator Checks
 
-Validate the robot files without starting Isaac Sim:
+The direct backend and complete environments can be checked independently:
 
 ```bash
-python3 scripts/tools/validate_urdf.py
-```
-
-Validate Gym registrations and construct both environment configurations inside
-an Isaac Sim runtime:
-
-```bash
-${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p scripts/tools/check_task_config.py --headless
-```
-
-## Smoke Test
-
-Run a short flat-ground training job before launching a full experiment:
-
-```bash
-${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --headless --num_envs 32 --max_iterations 2
+python scripts/tools/check_direct_backend.py --num-envs 2 --steps 16
+python scripts/tools/check_flat_env.py --num-envs 32 --steps 1000 \
+  --random-actions --check-selective-reset
+python scripts/tools/check_rough_env.py --num-envs 7 --steps 64 \
+  --terrain-rows 2 --terrain-cols 7
 ```
 
 ## Training
 
-Bootstrap locomotion on flat ground:
+Run a short flat PPO smoke test:
 
 ```bash
-${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p scripts/rsl_rl/train.py \
+python scripts/rsl_rl/train.py \
   --task PureRL-Velocity-Flat-TienKung-v0 \
-  --headless --num_envs 4096
+  --num-envs 32 --max-iterations 2 --num-steps-per-env 8
 ```
 
-Then initialize rough-terrain training from the flat checkpoint:
+Run full flat training, then initialize rough training from its policy:
 
 ```bash
-${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Rough-TienKung-v0 \
-  --headless --num_envs 4096 \
-  --pretrained_checkpoint /absolute/path/to/tienkung_flat/model_2500.pt
+python scripts/rsl_rl/train.py \
+  --task PureRL-Velocity-Flat-TienKung-v0 --num-envs 4096
+
+python scripts/rsl_rl/train.py \
+  --task PureRL-Velocity-Rough-TienKung-v0 --num-envs 4096 \
+  --pretrained-checkpoint /absolute/path/to/model_2499.pt
 ```
 
-Flat and rough tasks both expose a 259-dimensional policy observation,
-including the 187-point height scan, so their checkpoints are shape-compatible.
-
-RSL-RL stores checkpoints under `logs/rsl_rl/tienkung_flat` and
-`logs/rsl_rl/tienkung_rough`. On a 32 GB RTX 5090, begin with 2048 environments
-if 4096 environments exceed available PhysX or policy memory.
+Checkpoints are written below `logs/rsl_rl/tienkung_flat` and
+`logs/rsl_rl/tienkung_rough`. Start with 2048 environments if the default 4096
+exceeds available GPU memory.
 
 ## Evaluation And Export
 
 ```bash
-${PURE_RL_ISAACLAB_ROOT}/isaaclab.sh -p scripts/rsl_rl/play.py \
+python scripts/rsl_rl/play.py \
   --task PureRL-Velocity-Rough-TienKung-Play-v0 \
-  --num_envs 16 --checkpoint /absolute/path/to/model.pt
+  --num-envs 16 --checkpoint /absolute/path/to/model.pt
 ```
 
-The play script exports `policy.pt` and `policy.onnx` next to the selected
-checkpoint. The current policy observation order is inherited from Isaac Lab's
-velocity task: base linear velocity, base angular velocity, projected gravity,
-velocity command, relative joint positions, joint velocities, previous action,
-and terrain height scan for the rough task.
+The play command exports `policy.pt` and `policy.onnx` into an `exported`
+directory next to the checkpoint. Use `--no-export` to run inference only.
 
-## Control And Randomization
+## Runtime Contract
 
 - Physics frequency: 200 Hz (`dt=0.005`).
 - Policy frequency: 50 Hz (`decimation=4`).
-- Action: 20 joint-position residuals with scale `0.5` rad.
-- Foot contact bodies: `ankle_roll_l_link`, `ankle_roll_r_link`.
-- Root body: `pelvis`; nominal root height: `0.89 m`.
-- Randomization: friction, pelvis mass and center of mass, PD gains, joint reset
-  pose, initial heading, and periodic lateral/forward pushes.
+- Action: 20 position residuals with a `0.5 rad` scale.
+- Contact history update: every physics step.
+- Height scan update: every policy step.
+- Rough terrain: flat, random rough, slopes, stairs, and random blocks.
+- Selective reset and terrain-level curriculum are batched by environment ID.
+- Domain events: pelvis mass/COM, PD gains, joint/root reset pose, external
+  wrench, and periodic planar velocity pushes.
 
-Actuator gains, effort/velocity limits, armature values, and the nominal stand
-pose come from WBC-SONIC's TienKung configuration. The URDF and meshes are
-vendored under `assets/robot_description/tienkung` so the project has no runtime
-dependency on WBC-SONIC.
+The current direct backend still uses fixed contact-material friction and does
+not yet apply policy-observation noise. These remaining alignment items are
+tracked in `ISAACLAB_DECOUPLING_REFACTOR_PLAN.md`.

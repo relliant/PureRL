@@ -1,9 +1,8 @@
-from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from purerl.config.robot import DEFAULT_URDF_PATH
 
-ROOT = Path(__file__).resolve().parents[1]
-URDF = ROOT / "assets" / "robot_description" / "tienkung" / "tienkung2_lite.urdf"
+URDF = DEFAULT_URDF_PATH
 
 
 def test_urdf_has_expected_joint_count_and_limits():
@@ -16,7 +15,11 @@ def test_urdf_has_expected_joint_count_and_limits():
 
 def test_all_referenced_meshes_exist():
     robot = ET.parse(URDF).getroot()
-    missing = [mesh.attrib["filename"] for mesh in robot.findall(".//mesh") if not (URDF.parent / mesh.attrib["filename"]).is_file()]
+    missing = [
+        mesh.attrib["filename"]
+        for mesh in robot.findall(".//mesh")
+        if not (URDF.parent / mesh.attrib["filename"]).is_file()
+    ]
 
     assert missing == []
 
@@ -26,4 +29,3 @@ def test_expected_contact_and_root_links_exist():
     links = {link.attrib["name"] for link in robot.findall("link")}
 
     assert {"pelvis", "ankle_roll_l_link", "ankle_roll_r_link"} <= links
-
