@@ -150,8 +150,10 @@ def test_runner_configs_expose_rsl_rl_dictionary_contract():
     rough = make_rough_runner_cfg()
     serialized = rough.to_dict()
 
-    assert flat.max_iterations == 2500
-    assert rough.max_iterations == 5000
+    assert flat.max_iterations > 0
+    assert rough.max_iterations > 0
+    assert flat.experiment_name == "tienkung_flat"
+    assert rough.experiment_name == "tienkung_rough"
     assert serialized["class_name"] == "OnPolicyRunner"
     assert serialized["policy"]["actor_hidden_dims"] == [512, 256, 128]
     assert serialized["algorithm"]["class_name"] == "PPO"

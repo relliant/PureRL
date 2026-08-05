@@ -14,7 +14,7 @@ from purerl.app import AppLauncherCfg, IsaacSimLauncher
 from purerl.contracts import TASK_IDS
 from purerl.envs import TienKungLocomotionEnv
 from purerl.registry import get_task_spec
-from purerl.rl import RslRlVecEnvWrapper, find_checkpoint
+from purerl.rl import RslRlVecEnvWrapper, find_checkpoint, route_wandb_to_carb
 
 
 def main() -> None:
@@ -251,6 +251,7 @@ def _configure_wandb_environment(runner_cfg, log_dir: Path | None) -> None:
         os.environ["WANDB_TAGS"] = ",".join(runner_cfg.wandb_tags)
     if runner_cfg.wandb_run_id:
         os.environ["WANDB_RUN_ID"] = runner_cfg.wandb_run_id
+    route_wandb_to_carb()
 
 
 def _close_runner_writer(runner) -> None:
