@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._array import abs_value, exp, maximum, norm, sum_axis
+from ._array import abs_value, clip, exp, max_axis, maximum, min_axis, norm, sum_axis, where
 
 
 def termination_penalty(terminated: Any) -> Any:
@@ -46,25 +46,37 @@ def action_rate_l2(action: Any, previous_action: Any) -> Any:
 
 
 def feet_air_time_positive_biped(
-    last_air_time: Any,
-    first_contact: Any,
+    current_air_time: Any,
+    current_contact_time: Any,
     command: Any,
     *,
     threshold: float = 0.4,
     command_threshold: float = 0.1,
 ) -> Any:
+    in_contact = current_contact_time > 0.0
+    in_mode_time = where(in_contact, current_contact_time, current_air_time)
+    single_stance = sum_axis(in_contact) == 1
+    reward = min_axis(
+        where(single_stance[..., None], in_mode_time, in_mode_time * 0.0),
+        axis=-1,
+    )
     moving = norm(command[..., :2]) > command_threshold
-    reward = sum_axis((last_air_time - threshold) * first_contact)
-    return reward * moving
+    return clip(reward, 0.0, threshold) * moving
 
 
 def feet_slide(foot_linear_velocity: Any, contact_forces: Any, *, threshold: float = 1.0) -> Any:
-    in_contact = norm(contact_forces) > threshold
+    magnitudes = norm(contact_forces)
+    if len(magnitudes.shape) == 3:
+        magnitudes = max_axis(magnitudes, axis=1)
+    in_contact = magnitudes > threshold
     return sum_axis(norm(foot_linear_velocity[..., :2]) * in_contact)
 
 
 def undesired_contacts(contact_forces: Any, *, threshold: float = 1.0) -> Any:
-    return sum_axis(norm(contact_forces) > threshold)
+    magnitudes = norm(contact_forces)
+    if len(magnitudes.shape) == 3:
+        magnitudes = max_axis(magnitudes, axis=1)
+    return sum_axis(magnitudes > threshold)
 
 
 def joint_pos_limits(joint_positions: Any, soft_limits: Any) -> Any:
@@ -82,7 +94,7 @@ def stand_still_joint_deviation_l1(
     default_joint_positions: Any,
     command: Any,
     *,
-    command_threshold: float = 0.1,
+    command_threshold: float = 0.06,
 ) -> Any:
     standing = norm(command[..., :2]) < command_threshold
     return joint_deviation_l1(joint_positions, default_joint_positions) * standing

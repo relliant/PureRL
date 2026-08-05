@@ -21,7 +21,8 @@ def test_static_contract_fixture_matches_local_configuration():
     rough = make_rough_env_cfg()
     flat = make_flat_env_cfg()
 
-    assert contract["simulator_reference_available"] is False
+    assert contract["simulator_reference_available"] is True
+    assert (FIXTURE.parent / contract["simulator_reference_fixture"]).is_file()
     assert contract["action"] == {"dimension": ACTION_DIM, "scale": rough.actions.scale}
     assert contract["simulation"] == {
         "physics_dt": PHYSICS_DT,

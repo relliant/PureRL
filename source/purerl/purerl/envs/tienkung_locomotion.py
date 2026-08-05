@@ -64,6 +64,8 @@ class TienKungLocomotionEnv(BaseVecEnv):
             device=cfg.sim.device,
         )
         self.contact_history = ContactHistory(foot_template)
+        self.contact_force_history: torch.Tensor | None = None
+        self._contact_force_history_index = 0
         self.height_scan = torch.zeros(
             (cfg.scene.num_envs, cfg.observations.height_scan_points),
             dtype=torch.float32,
@@ -102,7 +104,7 @@ class TienKungLocomotionEnv(BaseVecEnv):
             scale=cfg.actions.scale,
             action_clip=cfg.actions.clip,
         )
-        observation_manager = self._make_observation_manager()
+        observation_manager = self._make_observation_manager(cfg)
         termination_manager = self._make_termination_manager()
         reward_manager = self._make_reward_manager(cfg)
         event_manager = self._make_event_manager(cfg)
@@ -128,6 +130,16 @@ class TienKungLocomotionEnv(BaseVecEnv):
             device=self.device,
         )
         self._joint_limits = backend.joint_limits
+        self.contact_force_history = torch.zeros(
+            (
+                self.num_envs,
+                cfg.sensors.contact_history_length,
+                len(backend.body_names),
+                3,
+            ),
+            dtype=torch.float32,
+            device=self.device,
+        )
         if self.terrain_curriculum is not None:
             self.terrain_curriculum.levels = (
                 backend.terrain_levels.detach().cpu().numpy().copy()
@@ -172,24 +184,49 @@ class TienKungLocomotionEnv(BaseVecEnv):
             dim=-1,
         )
 
-    def _make_observation_manager(self) -> ObservationManager:
+    def _make_observation_manager(self, cfg: EnvCfg) -> ObservationManager:
+        noise = cfg.observations.noise
         return ObservationManager(
             (
-                ObservationTermSpec("base_linear_velocity", lambda env: env.base_linear_velocity_body),
-                ObservationTermSpec("base_angular_velocity", lambda env: env.base_angular_velocity_body),
-                ObservationTermSpec("projected_gravity", lambda env: env.projected_gravity),
+                ObservationTermSpec(
+                    "base_linear_velocity",
+                    lambda env: env.base_linear_velocity_body,
+                    noise=noise.base_linear_velocity,
+                ),
+                ObservationTermSpec(
+                    "base_angular_velocity",
+                    lambda env: env.base_angular_velocity_body,
+                    noise=noise.base_angular_velocity,
+                ),
+                ObservationTermSpec(
+                    "projected_gravity",
+                    lambda env: env.projected_gravity,
+                    noise=noise.projected_gravity,
+                ),
                 ObservationTermSpec("velocity_command", lambda env: env.commands),
                 ObservationTermSpec(
                     "relative_joint_positions",
                     lambda env: relative_joint_positions(
                         env.state.joint_positions, env.default_joint_positions
                     ),
+                    noise=noise.relative_joint_positions,
                 ),
-                ObservationTermSpec("joint_velocities", lambda env: env.state.joint_velocities),
+                ObservationTermSpec(
+                    "joint_velocities",
+                    lambda env: env.state.joint_velocities,
+                    noise=noise.joint_velocities,
+                ),
                 ObservationTermSpec("previous_action", lambda env: env.action_manager.action),
-                ObservationTermSpec("terrain_height_scan", lambda env: env.height_scan),
+                ObservationTermSpec(
+                    "terrain_height_scan",
+                    lambda env: env.height_scan,
+                    noise=noise.terrain_height_scan,
+                    clip=cfg.observations.height_scan_clip,
+                ),
             ),
             expected_dimension=OBSERVATION_DIM,
+            enable_corruption=cfg.observations.enable_corruption,
+            seed=cfg.seed + 2,
         )
 
     def _make_termination_manager(self) -> TerminationManager:
@@ -205,7 +242,7 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 TerminationTermSpec(
                     "base_contact",
                     lambda env: termination_terms.illegal_contact(
-                        env.state.net_contact_forces[:, [env._root_body_index]], threshold=1.0
+                        env.contact_force_history[:, :, [env._root_body_index]], threshold=1.0
                     ),
                 ),
                 TerminationTermSpec(
@@ -218,6 +255,24 @@ class TienKungLocomotionEnv(BaseVecEnv):
         )
 
     def _make_reward_manager(self, cfg: EnvCfg) -> RewardManager:
+        leg_joint_indices = tuple(
+            index
+            for index, name in enumerate(cfg.robot.joint_names)
+            if name.startswith(("hip_", "knee_", "ankle_"))
+        )
+        ankle_joint_indices = tuple(
+            index for index, name in enumerate(cfg.robot.joint_names) if name.startswith("ankle_")
+        )
+        hip_deviation_indices = tuple(
+            index
+            for index, name in enumerate(cfg.robot.joint_names)
+            if name.startswith(("hip_roll_", "hip_yaw_"))
+        )
+        arm_joint_indices = tuple(
+            index
+            for index, name in enumerate(cfg.robot.joint_names)
+            if name.startswith(("shoulder_", "elbow_"))
+        )
         functions = {
             "termination_penalty": lambda env: reward_terms.termination_penalty(env._terminated()),
             "track_lin_vel_xy_exp": lambda env: reward_terms.track_lin_vel_xy_exp(
@@ -236,7 +291,7 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 env.projected_gravity
             ),
             "dof_torques_l2": lambda env: reward_terms.joint_torques_l2(
-                env.state.joint_torques[:, :12]
+                env.state.joint_torques[:, leg_joint_indices]
             ),
             "dof_acc_l2": lambda env: reward_terms.joint_acc_l2(
                 env.state.joint_accelerations
@@ -245,32 +300,33 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 env.action_manager.action, env.action_manager.previous_action
             ),
             "feet_air_time": lambda env: reward_terms.feet_air_time_positive_biped(
-                env.contact_history.last_air_time,
-                env.contact_history.first_contact,
+                env.contact_history.current_air_time,
+                env.contact_history.current_contact_time,
                 env.commands,
                 threshold=0.4,
             ),
             "feet_slide": lambda env: reward_terms.feet_slide(
                 env.state.body_linear_velocities[:, env._foot_body_indices],
-                env.state.net_contact_forces[:, env._foot_body_indices],
+                env.contact_force_history[:, :, env._foot_body_indices],
             ),
             "undesired_contacts": lambda env: reward_terms.undesired_contacts(
-                env.state.net_contact_forces[:, env._non_foot_body_indices], threshold=1.0
+                env.contact_force_history[:, :, env._non_foot_body_indices], threshold=1.0
             ),
             "dof_pos_limits": lambda env: reward_terms.joint_pos_limits(
-                env.state.joint_positions[:, (4, 5, 10, 11)],
-                env._joint_limits[:, (4, 5, 10, 11)],
+                env.state.joint_positions[:, ankle_joint_indices],
+                env._joint_limits[:, ankle_joint_indices],
             ),
             "joint_deviation_hip": lambda env: reward_terms.joint_deviation_l1(
-                env.state.joint_positions[:, (0, 2, 6, 8)],
-                env.default_joint_positions[:, (0, 2, 6, 8)],
+                env.state.joint_positions[:, hip_deviation_indices],
+                env.default_joint_positions[:, hip_deviation_indices],
             ),
             "joint_deviation_arms": lambda env: reward_terms.joint_deviation_l1(
-                env.state.joint_positions[:, 12:], env.default_joint_positions[:, 12:]
+                env.state.joint_positions[:, arm_joint_indices],
+                env.default_joint_positions[:, arm_joint_indices],
             ),
             "stand_still": lambda env: reward_terms.stand_still_joint_deviation_l1(
-                env.state.joint_positions[:, :12],
-                env.default_joint_positions[:, :12],
+                env.state.joint_positions[:, leg_joint_indices],
+                env.default_joint_positions[:, leg_joint_indices],
                 env.commands,
             ),
         }
@@ -310,7 +366,7 @@ class TienKungLocomotionEnv(BaseVecEnv):
         return values["base_contact"] | values["bad_orientation"]
 
     def _update_commands(self) -> None:
-        self.command_manager.update()
+        self.command_manager.update(_yaw_from_quaternion(self.state.root_quaternion))
 
     def _reset_commands(self, env_ids: Any) -> None:
         self.command_manager.reset(env_ids)
@@ -335,6 +391,24 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 self._uniform_random(cfg.actuator_gain_scale, shape),
                 self._uniform_random(cfg.actuator_gain_scale, shape),
             )
+        static_buckets = self._uniform_random(
+            cfg.static_friction_range, (cfg.friction_buckets,)
+        )
+        dynamic_buckets = self._uniform_random(
+            cfg.dynamic_friction_range, (cfg.friction_buckets,)
+        )
+        dynamic_buckets = torch.minimum(dynamic_buckets, static_buckets)
+        bucket_ids = torch.randint(
+            cfg.friction_buckets,
+            (self.num_envs,),
+            generator=self._event_generator,
+            device=self.device,
+        )
+        self.backend.set_contact_material_friction(
+            env_ids,
+            static_buckets[bucket_ids],
+            dynamic_buckets[bucket_ids],
+        )
 
     def randomize_reset_state(self, env_ids: Any) -> None:
         env_ids = env_ids.to(device=self.device, dtype=torch.long).flatten()
@@ -412,12 +486,19 @@ class TienKungLocomotionEnv(BaseVecEnv):
         if self._foot_body_indices is None:
             return
         contact_forces = self.backend.get_net_contact_forces()
+        if self.contact_force_history is not None:
+            self.contact_force_history[:, self._contact_force_history_index].copy_(contact_forces)
+            self._contact_force_history_index = (
+                self._contact_force_history_index + 1
+            ) % self.contact_force_history.shape[1]
         self.contact_history.update(
             contact_forces[:, self._foot_body_indices], self.cfg.sim.dt
         )
 
     def _reset_sensors(self, env_ids: Any) -> None:
         self.contact_history.reset(env_ids)
+        if self.contact_force_history is not None:
+            self.contact_force_history[env_ids] = 0.0
         self.height_scan[env_ids] = 0.0
         if self._foot_body_indices is not None:
             terrain_heights = self.backend.sample_terrain_heights(
@@ -443,6 +524,7 @@ class TienKungLocomotionEnv(BaseVecEnv):
         super()._set_seed(seed)
         self.command_manager.set_seed(seed)
         self._event_generator.manual_seed(seed + 1)
+        self.observation_manager.set_seed(seed + 2)
 
     def _uniform_random(self, value_range: tuple[float, float], shape: tuple[int, ...]):
         low, high = value_range
@@ -463,10 +545,10 @@ class TienKungLocomotionEnv(BaseVecEnv):
 
 
 def _quat_rotate_inverse(quaternion: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
-    conjugate = torch.cat((quaternion[:, :1], -quaternion[:, 1:]), dim=-1)
-    axis = conjugate[:, 1:]
+    conjugate = torch.cat((quaternion[..., :1], -quaternion[..., 1:]), dim=-1)
+    axis = conjugate[..., 1:]
     twice_cross = 2.0 * torch.cross(axis, vector, dim=-1)
-    return vector + conjugate[:, :1] * twice_cross + torch.cross(axis, twice_cross, dim=-1)
+    return vector + conjugate[..., :1] * twice_cross + torch.cross(axis, twice_cross, dim=-1)
 
 
 def _yaw_from_quaternion(quaternion: torch.Tensor) -> torch.Tensor:

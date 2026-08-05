@@ -38,11 +38,13 @@ class BaseVecEnv:
         self.termination_manager = termination_manager
         self.event_manager = event_manager or EventManager(())
         self.render_mode = render_mode
+        self.metadata = {**type(self).metadata, "render_fps": round(1.0 / cfg.sim.step_dt)}
         self.num_envs = cfg.scene.num_envs
         self.num_actions = cfg.actions.dimension
         self.max_episode_length = cfg.max_episode_steps
         self.device = cfg.sim.device
         self.step_dt = cfg.sim.step_dt
+        self._sim_step_counter = 0
         self.closed = False
 
         backend.initialize(cfg)
@@ -71,14 +73,19 @@ class BaseVecEnv:
 
         targets = self.action_manager.process(action)
         for _ in range(self.cfg.sim.decimation):
+            self._sim_step_counter += 1
             self.backend.set_joint_position_targets(targets)
-            self.backend.simulate(render=self.render_mode is not None)
+            self.backend.simulate(
+                render=(
+                    self.render_mode is not None
+                    and self._sim_step_counter % self.cfg.sim.render_interval == 0
+                )
+            )
             self._update_physics_step_sensors()
 
         self.backend.refresh()
         self._update_sensors()
         self.episode_length_buf += 1
-        self._update_commands()
         terminated, truncated = self.termination_manager.compute(self)
         reward = self.reward_manager.compute(self)
 
@@ -88,6 +95,7 @@ class BaseVecEnv:
         episode = self.reward_manager.reset(done_env_ids)
         self._apply_curriculum(done_env_ids)
         self._reset_idx(done_env_ids, reset_rewards=False)
+        self._update_commands()
         self.event_manager.run("interval", self)
 
         info = {
@@ -100,6 +108,11 @@ class BaseVecEnv:
 
     def get_observations(self) -> dict[str, Any]:
         return {"policy": self.observation_manager.compute(self)}
+
+    def render(self) -> Any | None:
+        if self.render_mode is None:
+            return None
+        return self.backend.render_rgb()
 
     def close(self) -> None:
         if not self.closed:

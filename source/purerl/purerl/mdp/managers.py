@@ -15,16 +15,41 @@ class ObservationTermSpec:
     name: str
     func: TermCallable
     params: Mapping[str, Any] = field(default_factory=dict)
+    noise: tuple[float, float] | None = None
+    clip: tuple[float, float] | None = None
+
+    def __post_init__(self) -> None:
+        for label, value_range in (("noise", self.noise), ("clip", self.clip)):
+            if value_range is not None and value_range[0] > value_range[1]:
+                raise ValueError(f"Observation term {self.name!r} has an invalid {label} range")
 
 
 class ObservationManager:
-    def __init__(self, terms: tuple[ObservationTermSpec, ...], *, expected_dimension: int):
+    def __init__(
+        self,
+        terms: tuple[ObservationTermSpec, ...],
+        *,
+        expected_dimension: int,
+        enable_corruption: bool = False,
+        seed: int = 0,
+    ):
         self.terms = terms
         self.expected_dimension = expected_dimension
+        self.enable_corruption = enable_corruption
+        self._seed = seed
+        self._torch_generators: dict[str, Any] = {}
+        self._numpy_generator: Any = None
         _validate_unique_names(term.name for term in terms)
 
     def compute(self, context: Any) -> Any:
-        values = [term.func(context, **term.params) for term in self.terms]
+        values = []
+        for term in self.terms:
+            value = term.func(context, **term.params)
+            if self.enable_corruption and term.noise is not None:
+                value = value + self._uniform_noise(value, term.noise)
+            if term.clip is not None:
+                value = _clip(value, term.clip)
+            values.append(value)
         observation = concatenate(values)
         if observation.shape[-1] != self.expected_dimension:
             raise ValueError(
@@ -32,6 +57,37 @@ class ObservationManager:
                 f"expected {self.expected_dimension}"
             )
         return observation
+
+    def set_seed(self, seed: int) -> None:
+        self._seed = seed
+        self._torch_generators.clear()
+        self._numpy_generator = None
+
+    def _uniform_noise(self, value: Any, value_range: tuple[float, float]) -> Any:
+        low, high = value_range
+        module = type(value).__module__
+        if module.startswith("torch"):
+            import torch
+
+            device = str(value.device)
+            generator = self._torch_generators.get(device)
+            if generator is None:
+                generator = torch.Generator(device=value.device)
+                generator.manual_seed(self._seed)
+                self._torch_generators[device] = generator
+            samples = torch.rand(
+                value.shape,
+                dtype=value.dtype,
+                device=value.device,
+                generator=generator,
+            )
+        else:
+            import numpy as np
+
+            if self._numpy_generator is None:
+                self._numpy_generator = np.random.default_rng(self._seed)
+            samples = self._numpy_generator.random(value.shape, dtype=value.dtype)
+        return low + (high - low) * samples
 
 
 @dataclass(frozen=True)
@@ -137,3 +193,13 @@ def _validate_unique_names(names: Any) -> None:
     names_tuple = tuple(names)
     if len(names_tuple) != len(set(names_tuple)):
         raise ValueError("Manager term names must be unique")
+
+
+def _clip(value: Any, value_range: tuple[float, float]) -> Any:
+    low, high = value_range
+    if type(value).__module__.startswith("torch"):
+        return value.clamp(min=low, max=high)
+
+    import numpy as np
+
+    return np.clip(value, low, high)

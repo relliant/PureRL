@@ -63,6 +63,10 @@ class FakeTienKungBackend:
     def sample_terrain_heights(self, world_points_xy):
         return torch.zeros(world_points_xy.shape[:-1])
 
+    def set_contact_material_friction(self, env_ids, static_friction, dynamic_friction):
+        self.static_friction = static_friction.clone()
+        self.dynamic_friction = dynamic_friction.clone()
+
     def randomize_body_properties(self, env_ids, mass_delta, com_offset):
         self.mass_delta = mass_delta.clone()
         self.com_offset = com_offset.clone()
@@ -107,8 +111,13 @@ class FakeTienKungBackend:
         pass
 
 
-def make_env():
+def make_env(*, play=False):
     base = make_flat_env_cfg()
+    if play:
+        base = base.replace(
+            play=True,
+            observations=base.observations.replace(enable_corruption=False),
+        )
     cfg = base.replace(
         scene=base.scene.replace(num_envs=2),
         sim=base.sim.replace(device="cpu"),
@@ -117,7 +126,7 @@ def make_env():
 
 
 def test_flat_environment_produces_stable_policy_contract():
-    env = make_env()
+    env = make_env(play=True)
     observations, _ = env.reset(seed=7)
 
     assert observations["policy"].shape == (2, 259)
@@ -126,6 +135,23 @@ def test_flat_environment_produces_stable_policy_contract():
     assert env.observation_space["policy"].shape == (259,)
     assert env.backend.mass_delta.shape == (2,)
     assert env.backend.stiffness_scale.shape == (2, 20)
+    assert env.backend.static_friction.shape == (2,)
+    assert (env.backend.static_friction >= env.cfg.randomization.static_friction_range[0]).all()
+    assert (env.backend.static_friction <= env.cfg.randomization.static_friction_range[1]).all()
+    assert (env.backend.dynamic_friction >= env.cfg.randomization.dynamic_friction_range[0]).all()
+    assert (env.backend.dynamic_friction <= env.cfg.randomization.dynamic_friction_range[1]).all()
+    assert (env.backend.dynamic_friction <= env.backend.static_friction).all()
+
+
+def test_training_observation_corruption_is_seeded_by_reset():
+    env = make_env()
+    first, _ = env.reset(seed=7)
+    second, _ = env.reset(seed=7)
+
+    assert torch.equal(first["policy"], second["policy"])
+    assert not torch.allclose(first["policy"][:, 72:], torch.full((2, 187), 0.39))
+    assert (first["policy"][:, 72:] >= 0.29).all()
+    assert (first["policy"][:, 72:] <= 0.49).all()
 
 
 def test_flat_environment_runs_manager_lifecycle():

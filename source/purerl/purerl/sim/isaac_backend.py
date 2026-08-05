@@ -53,12 +53,17 @@ class IsaacSimBackend:
         self.terrain_levels: Any = None
         self.terrain_columns: Any = None
         self.terrain_tile_indices: Any = None
+        self.contact_material_friction: Any = None
+        self.collision_filtering_mode = "spatial_separation"
         self._cfg: EnvCfg | None = None
+        self._np: Any = None
         self._torch: Any = None
         self._world: Any = None
         self._articulation: Any = None
         self._body_view: Any = None
         self._contact_view: Any = None
+        self._rgb_annotator: Any = None
+        self._render_product: Any = None
         self._joint_indices: Any = None
         self._body_view_indices: Any = None
         self._num_bodies = 0
@@ -85,7 +90,7 @@ class IsaacSimBackend:
             from isaacsim.core.cloner import GridCloner
             from isaacsim.core.prims import Articulation, RigidPrim
             from isaacsim.core.utils.stage import add_reference_to_stage, get_current_stage
-            from pxr import PhysxSchema, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
+            from pxr import PhysxSchema, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade, Vt
         except ImportError as exc:
             raise RuntimeError(
                 "Isaac Sim must be installed and SimulationApp must be launched before creating the backend"
@@ -93,6 +98,7 @@ class IsaacSimBackend:
 
         cfg.validate()
         self._cfg = cfg
+        self._np = np
         self._torch = torch
         self.num_envs = cfg.scene.num_envs
         self.device = cfg.sim.device
@@ -116,6 +122,19 @@ class IsaacSimBackend:
             stage_units_in_meters=1.0,
             backend="torch",
             device=self.device,
+            sim_params={
+                "gpu_max_rigid_contact_count": cfg.sim.gpu_max_rigid_contact_count,
+                "gpu_max_rigid_patch_count": cfg.sim.gpu_max_rigid_patch_count,
+                "gpu_found_lost_pairs_capacity": cfg.sim.gpu_found_lost_pairs_capacity,
+                "gpu_found_lost_aggregate_pairs_capacity": (
+                    cfg.sim.gpu_found_lost_aggregate_pairs_capacity
+                ),
+                "gpu_total_aggregate_pairs_capacity": cfg.sim.gpu_total_aggregate_pairs_capacity,
+                "gpu_heap_capacity": cfg.sim.gpu_heap_capacity,
+                "gpu_temp_buffer_capacity": cfg.sim.gpu_temp_buffer_capacity,
+                "gpu_max_num_partitions": cfg.sim.gpu_max_num_partitions,
+                "gpu_collision_stack_size": cfg.sim.gpu_collision_stack_size,
+            },
         )
         if cfg.task_kind == "flat":
             self._world.scene.add_ground_plane(
@@ -127,6 +146,8 @@ class IsaacSimBackend:
 
         robot_usd = self._import_robot_usd(omni.kit.commands, cfg)
         stage = get_current_stage()
+        sky_light = UsdLux.DomeLight.Define(stage, "/World/skyLight")
+        sky_light.CreateIntensityAttr(750.0)
         if terrain_tiles:
             self._create_rough_terrain(
                 stage,
@@ -156,8 +177,16 @@ class IsaacSimBackend:
             prim_paths=env_paths,
             position_offsets=None if terrain_assignment is None else terrain_assignment.origins,
             replicate_physics=True,
-            enable_env_ids=terrain_assignment is not None,
+            enable_env_ids=False,
         )
+        if terrain_assignment is not None:
+            cloner.filter_collisions(
+                self._find_physics_scene_path(stage, UsdPhysics),
+                "/World/collisionGroups",
+                env_paths,
+                global_paths=["/World/terrain"],
+            )
+            self.collision_filtering_mode = "collision_groups"
         origin_array = np.asarray(origins, dtype=np.float32)
         self.env_origins = torch.as_tensor(origin_array, dtype=torch.float32, device=self.device)
         if terrain_assignment is None:
@@ -250,6 +279,9 @@ class IsaacSimBackend:
             cfg.robot.default_joint_positions, dtype=torch.float32, device=self.device
         ).repeat(self.num_envs, 1)
         self._previous_joint_velocities = torch.zeros_like(self._default_joint_positions)
+        self.contact_material_friction = torch.zeros(
+            (self.num_envs, 2), dtype=torch.float32, device=self.device
+        )
 
         self._configure_articulation()
         root_body_indices = [self.index_map.root_body_index]
@@ -286,6 +318,36 @@ class IsaacSimBackend:
     def simulate(self, *, render: bool) -> None:
         self._require_initialized()
         self._world.step(render=render)
+
+    def render_rgb(self) -> Any:
+        """Render the configured viewport camera and return an ``H x W x 3`` uint8 array."""
+
+        self._require_initialized()
+        if self._rgb_annotator is None:
+            import omni.replicator.core as rep
+            from isaacsim.core.utils.viewports import set_camera_view
+
+            set_camera_view(
+                self._cfg.viewer.eye,
+                self._cfg.viewer.look_at,
+                self._cfg.viewer.camera_prim_path,
+            )
+            self._render_product = rep.create.render_product(
+                self._cfg.viewer.camera_prim_path,
+                self._cfg.viewer.resolution,
+            )
+            self._rgb_annotator = rep.AnnotatorRegistry.get_annotator("rgb", device="cpu")
+            self._rgb_annotator.attach([self._render_product])
+
+        self._world.render()
+        rgb_data = self._rgb_annotator.get_data()
+        array = self._np.asarray(rgb_data, dtype=self._np.uint8)
+        width, height = self._cfg.viewer.resolution
+        if array.size == 0:
+            return self._np.zeros((height, width, 3), dtype=self._np.uint8)
+        if array.ndim != 3 or array.shape[2] < 3:
+            raise RuntimeError(f"RGB annotator returned an invalid frame shape: {array.shape}")
+        return self._np.array(array[:, :, :3], copy=True)
 
     def refresh(self) -> None:
         self._require_initialized()
@@ -355,6 +417,45 @@ class IsaacSimBackend:
         self.terrain_tile_indices[env_ids] = tile_indices
         self.env_origins[env_ids] = self._terrain_tile_origins[tile_indices]
         self._terrain_sampler.update_env_tiles(env_ids, tile_indices)
+
+    def set_contact_material_friction(
+        self,
+        env_ids: Any,
+        static_friction: Any,
+        dynamic_friction: Any,
+    ) -> None:
+        """Set one contact-friction pair on every collision shape of each selected robot."""
+
+        self._require_initialized()
+        env_ids = self._normalize_env_ids(env_ids)
+        count = env_ids.numel()
+        if count == 0:
+            return
+        if tuple(static_friction.shape) != (count,) or tuple(dynamic_friction.shape) != (count,):
+            raise ValueError("Contact friction values do not match env_ids")
+        if self._torch.any(static_friction < 0.0) or self._torch.any(dynamic_friction < 0.0):
+            raise ValueError("Contact friction values must be non-negative")
+        if self._torch.any(dynamic_friction > static_friction):
+            raise ValueError("Dynamic friction cannot exceed static friction")
+
+        physics_view = self._articulation._physics_view
+        properties = physics_view.get_material_properties().clone()
+        property_ids = env_ids.to(device=properties.device)
+        properties[property_ids, :, 0] = static_friction.to(properties.device)[:, None]
+        properties[property_ids, :, 1] = dynamic_friction.to(properties.device)[:, None]
+        properties[property_ids, :, 2] = 0.0
+        physics_view.set_material_properties(
+            properties,
+            property_ids.to(dtype=self._torch.int32),
+        )
+        self.contact_material_friction[env_ids, 0] = static_friction
+        self.contact_material_friction[env_ids, 1] = dynamic_friction
+
+    def get_contact_material_properties(self) -> Any:
+        """Return the live PhysX shape material tensor for integration checks."""
+
+        self._require_initialized()
+        return self._articulation._physics_view.get_material_properties().clone()
 
     def randomize_body_properties(
         self, env_ids: Any, mass_delta: Any, com_offset: Any
@@ -507,6 +608,14 @@ class IsaacSimBackend:
     def close(self) -> None:
         if self._closed:
             return
+        if self._rgb_annotator is not None and self._render_product is not None:
+            try:
+                self._rgb_annotator.detach([self._render_product])
+                self._render_product.destroy()
+            except Exception:
+                pass
+        self._rgb_annotator = None
+        self._render_product = None
         if self._world is not None:
             world_type = type(self._world)
             self._world.stop()
@@ -521,21 +630,24 @@ class IsaacSimBackend:
     def _import_robot_usd(self, kit_commands: Any, cfg: EnvCfg) -> Path:
         self.asset_cache_dir.mkdir(parents=True, exist_ok=True)
         source = cfg.robot.urdf_path.resolve()
-        destination = self.asset_cache_dir / f"{source.stem}-isaacsim-5.1.usd"
+        destination = self.asset_cache_dir / f"{source.stem}-isaacsim-5.1-compat-v2.usd"
         if destination.is_file() and destination.stat().st_mtime >= source.stat().st_mtime:
             return destination
 
         status, import_config = kit_commands.execute("URDFCreateImportConfig")
         if not status:
             raise RuntimeError("Isaac Sim failed to create a URDF import configuration")
-        import_config.merge_fixed_joints = cfg.robot.merge_fixed_joints
-        import_config.fix_base = False
-        import_config.make_default_prim = True
-        import_config.create_physics_scene = False
-        import_config.import_inertia_tensor = True
-        import_config.distance_scale = 1.0
-        import_config.set_self_collision(cfg.robot.self_collisions)
+        import_config.set_distance_scale(1.0)
+        import_config.set_make_default_prim(True)
+        import_config.set_create_physics_scene(False)
+        import_config.set_density(0.0)
+        import_config.set_convex_decomp(False)
         import_config.set_collision_from_visuals(False)
+        import_config.set_merge_fixed_joints(cfg.robot.merge_fixed_joints)
+        import_config.set_fix_base(False)
+        import_config.set_self_collision(cfg.robot.self_collisions)
+        import_config.set_parse_mimic(False)
+        import_config.set_replace_cylinders_with_capsules(True)
         status, imported_path = kit_commands.execute(
             "URDFParseAndImportFile",
             urdf_path=str(source),
@@ -548,6 +660,13 @@ class IsaacSimBackend:
                 f"Isaac Sim failed to import {source} to {destination}; result={imported_path!r}"
             )
         return destination
+
+    @staticmethod
+    def _find_physics_scene_path(stage: Any, usd_physics: Any) -> str:
+        paths = [str(prim.GetPath()) for prim in stage.Traverse() if prim.IsA(usd_physics.Scene)]
+        if len(paths) != 1:
+            raise RuntimeError(f"Expected one PhysicsScene for collision filtering, found {paths}")
+        return paths[0]
 
     def _configure_articulation(self) -> None:
         num_envs = self.num_envs

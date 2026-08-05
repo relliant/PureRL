@@ -38,6 +38,10 @@ class FakeBackend:
         self.log.append("simulate")
         self.state.value += 1.0
 
+    def render_rgb(self):
+        self.log.append("render_rgb")
+        return np.full((3, 4, 3), 127, dtype=np.uint8)
+
     def refresh(self):
         self.log.append("refresh")
 
@@ -55,7 +59,7 @@ class FakeBackend:
         self.log.append("close")
 
 
-def make_env(num_envs=2):
+def make_env(num_envs=2, *, render_mode=None):
     log = []
     cfg = make_flat_env_cfg().replace(
         scene=make_flat_env_cfg().scene.replace(num_envs=num_envs),
@@ -97,6 +101,7 @@ def make_env(num_envs=2):
         reward_manager=rewards,
         termination_manager=terminations,
         event_manager=events,
+        render_mode=render_mode,
     )
     return env, log
 
@@ -133,3 +138,14 @@ def test_close_is_idempotent():
     env.close()
     env.close()
     assert log.count("close") == 1
+
+
+def test_rgb_array_render_delegates_to_backend():
+    env, log = make_env(render_mode="rgb_array")
+
+    frame = env.render()
+
+    assert frame.shape == (3, 4, 3)
+    assert frame.dtype == np.uint8
+    assert env.metadata["render_fps"] == 50
+    assert log[-1] == "render_rgb"

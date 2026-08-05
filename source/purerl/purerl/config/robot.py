@@ -14,7 +14,7 @@ DEFAULT_URDF_PATH = (
     PACKAGE_ROOT / "assets" / "robot_description" / "tienkung" / "tienkung2_lite.urdf"
 )
 
-JOINT_NAMES = (
+_DECLARED_JOINT_NAMES = (
     "hip_roll_l_joint",
     "hip_pitch_l_joint",
     "hip_yaw_l_joint",
@@ -37,7 +37,7 @@ JOINT_NAMES = (
     "elbow_pitch_r_joint",
 )
 
-DEFAULT_JOINT_POSITIONS = (
+_DECLARED_DEFAULT_JOINT_POSITIONS = (
     0.0,
     -0.5,
     0.0,
@@ -60,7 +60,7 @@ DEFAULT_JOINT_POSITIONS = (
     -0.3,
 )
 
-STIFFNESS = (
+_DECLARED_STIFFNESS = (
     700.0,
     700.0,
     500.0,
@@ -83,7 +83,7 @@ STIFFNESS = (
     10.0,
 )
 
-DAMPING = (
+_DECLARED_DAMPING = (
     10.0,
     10.0,
     5.0,
@@ -106,7 +106,7 @@ DAMPING = (
     1.0,
 )
 
-EFFORT_LIMITS = (
+_DECLARED_EFFORT_LIMITS = (
     180.0,
     300.0,
     180.0,
@@ -129,7 +129,7 @@ EFFORT_LIMITS = (
     52.5,
 )
 
-VELOCITY_LIMITS = (
+_DECLARED_VELOCITY_LIMITS = (
     15.6,
     15.6,
     15.6,
@@ -152,7 +152,7 @@ VELOCITY_LIMITS = (
     14.1,
 )
 
-ARMATURE = (
+_DECLARED_ARMATURE = (
     0.0103,
     0.0251,
     0.0103,
@@ -174,6 +174,47 @@ ARMATURE = (
     0.003597,
     0.003597,
 )
+
+# The legacy action configuration listed joints in ``_DECLARED_JOINT_NAMES``
+# but left ``preserve_order`` disabled. Isaac Lab therefore exposed actions and
+# joint observations in this articulation order. Existing checkpoints depend on
+# the resolved order, not the declaration order.
+JOINT_NAMES = (
+    "hip_roll_l_joint",
+    "hip_roll_r_joint",
+    "shoulder_pitch_l_joint",
+    "shoulder_pitch_r_joint",
+    "hip_pitch_l_joint",
+    "hip_pitch_r_joint",
+    "shoulder_roll_l_joint",
+    "shoulder_roll_r_joint",
+    "hip_yaw_l_joint",
+    "hip_yaw_r_joint",
+    "shoulder_yaw_l_joint",
+    "shoulder_yaw_r_joint",
+    "knee_pitch_l_joint",
+    "knee_pitch_r_joint",
+    "elbow_pitch_l_joint",
+    "elbow_pitch_r_joint",
+    "ankle_pitch_l_joint",
+    "ankle_pitch_r_joint",
+    "ankle_roll_l_joint",
+    "ankle_roll_r_joint",
+)
+
+_DECLARED_INDEX = {name: index for index, name in enumerate(_DECLARED_JOINT_NAMES)}
+
+
+def _resolve_articulation_order(values: tuple[float, ...]) -> tuple[float, ...]:
+    return tuple(values[_DECLARED_INDEX[name]] for name in JOINT_NAMES)
+
+
+DEFAULT_JOINT_POSITIONS = _resolve_articulation_order(_DECLARED_DEFAULT_JOINT_POSITIONS)
+STIFFNESS = _resolve_articulation_order(_DECLARED_STIFFNESS)
+DAMPING = _resolve_articulation_order(_DECLARED_DAMPING)
+EFFORT_LIMITS = _resolve_articulation_order(_DECLARED_EFFORT_LIMITS)
+VELOCITY_LIMITS = _resolve_articulation_order(_DECLARED_VELOCITY_LIMITS)
+ARMATURE = _resolve_articulation_order(_DECLARED_ARMATURE)
 
 
 @dataclass(frozen=True)

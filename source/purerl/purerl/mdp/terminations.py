@@ -14,8 +14,8 @@ def time_out(episode_length: Any, max_episode_length: int) -> Any:
 def illegal_contact(contact_forces: Any, *, threshold: float = 1.0) -> Any:
     violations = norm(contact_forces) > threshold
     if type(violations).__module__.startswith("torch"):
-        return violations.any(dim=-1)
-    return violations.any(axis=-1)
+        return violations.reshape(violations.shape[0], -1).any(dim=-1)
+    return violations.reshape(violations.shape[0], -1).any(axis=-1)
 
 
 def bad_orientation(projected_gravity: Any, *, limit_angle: float = 0.8) -> Any:

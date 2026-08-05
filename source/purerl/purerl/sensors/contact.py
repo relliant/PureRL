@@ -17,6 +17,7 @@ class ContactHistory:
         self.in_contact = template > force_threshold
         self.first_contact = self.in_contact & False
         self.current_air_time = template * 0.0
+        self.current_contact_time = template * 0.0
         self.last_air_time = template * 0.0
 
     def update(self, net_forces: Any, dt: float) -> None:
@@ -28,14 +29,21 @@ class ContactHistory:
         contact = norm(net_forces) > self.force_threshold
         self.first_contact = contact & ~self.in_contact
         completed_air_time = self.current_air_time + dt
+        completed_contact_time = self.current_contact_time + dt
         self.last_air_time = _where(self.first_contact, completed_air_time, self.last_air_time)
         self.current_air_time = _where(contact, self.current_air_time * 0.0, completed_air_time)
+        self.current_contact_time = _where(
+            contact,
+            completed_contact_time,
+            self.current_contact_time * 0.0,
+        )
         self.in_contact = contact
 
     def reset(self, env_ids: Any) -> None:
         self.in_contact[env_ids] = False
         self.first_contact[env_ids] = False
         self.current_air_time[env_ids] = 0.0
+        self.current_contact_time[env_ids] = 0.0
         self.last_air_time[env_ids] = 0.0
 
 

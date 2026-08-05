@@ -61,6 +61,18 @@ def maximum(value: Any, minimum: float) -> Any:
     return np.maximum(value, minimum)
 
 
+def max_axis(value: Any, axis: int) -> Any:
+    if is_torch(value):
+        return value.max(dim=axis).values
+    return value.max(axis=axis)
+
+
+def min_axis(value: Any, axis: int) -> Any:
+    if is_torch(value):
+        return value.min(dim=axis).values
+    return value.min(axis=axis)
+
+
 def norm(value: Any, axis: int = -1) -> Any:
     if is_torch(value):
         return value.norm(dim=axis)
@@ -73,6 +85,16 @@ def sum_axis(value: Any, axis: int = -1) -> Any:
     if is_torch(value):
         return value.sum(dim=axis)
     return value.sum(axis=axis)
+
+
+def where(condition: Any, true_value: Any, false_value: Any) -> Any:
+    if is_torch(condition):
+        import torch
+
+        return torch.where(condition, true_value, false_value)
+    import numpy as np
+
+    return np.where(condition, true_value, false_value)
 
 
 def zeros_like(value: Any) -> Any:

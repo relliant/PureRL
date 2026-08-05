@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from purerl.contracts import ACTION_DIM, DECIMATION, OBSERVATION_DIM, PHYSICS_DT
 
 from .base import ConfigMixin
 from .robot import RobotCfg, make_tienkung_robot_cfg
+
+PRESET_DIR = Path(__file__).resolve().parent / "presets"
+FLAT_ENV_PRESET = PRESET_DIR / "flat_env.yaml"
+FLAT_PLAY_ENV_PRESET = PRESET_DIR / "flat_play_env.yaml"
+ROUGH_ENV_PRESET = PRESET_DIR / "rough_env.yaml"
+ROUGH_PLAY_ENV_PRESET = PRESET_DIR / "rough_play_env.yaml"
 
 
 @dataclass(frozen=True)
@@ -17,6 +24,15 @@ class SimCfg(ConfigMixin):
     decimation: int = DECIMATION
     device: str = "cuda:0"
     render_interval: int = DECIMATION
+    gpu_max_rigid_contact_count: int = 2**23
+    gpu_max_rigid_patch_count: int = 2**22
+    gpu_found_lost_pairs_capacity: int = 2**21
+    gpu_found_lost_aggregate_pairs_capacity: int = 2**25
+    gpu_total_aggregate_pairs_capacity: int = 2**21
+    gpu_heap_capacity: int = 2**26
+    gpu_temp_buffer_capacity: int = 2**24
+    gpu_max_num_partitions: int = 8
+    gpu_collision_stack_size: int = 2**26
 
     @property
     def step_dt(self) -> float:
@@ -38,10 +54,22 @@ class ActionCfg(ConfigMixin):
 
 
 @dataclass(frozen=True)
+class ObservationNoiseCfg(ConfigMixin):
+    base_linear_velocity: tuple[float, float] = (-0.1, 0.1)
+    base_angular_velocity: tuple[float, float] = (-0.2, 0.2)
+    projected_gravity: tuple[float, float] = (-0.05, 0.05)
+    relative_joint_positions: tuple[float, float] = (-0.01, 0.01)
+    joint_velocities: tuple[float, float] = (-1.5, 1.5)
+    terrain_height_scan: tuple[float, float] = (-0.1, 0.1)
+
+
+@dataclass(frozen=True)
 class ObservationCfg(ConfigMixin):
     dimension: int = OBSERVATION_DIM
     height_scan_points: int = 187
     enable_corruption: bool = True
+    noise: ObservationNoiseCfg = field(default_factory=ObservationNoiseCfg)
+    height_scan_clip: tuple[float, float] = (-1.0, 1.0)
 
 
 @dataclass(frozen=True)
@@ -55,6 +83,14 @@ class SensorCfg(ConfigMixin):
 
 
 @dataclass(frozen=True)
+class ViewerCfg(ConfigMixin):
+    eye: tuple[float, float, float] = (3.0, 3.0, 2.0)
+    look_at: tuple[float, float, float] = (0.0, 0.0, 0.8)
+    camera_prim_path: str = "/OmniverseKit_Persp"
+    resolution: tuple[int, int] = (1280, 720)
+
+
+@dataclass(frozen=True)
 class VelocityRangesCfg(ConfigMixin):
     lin_vel_x: tuple[float, float] = (-0.5, 1.2)
     lin_vel_y: tuple[float, float] = (-0.4, 0.4)
@@ -65,6 +101,9 @@ class VelocityRangesCfg(ConfigMixin):
 @dataclass(frozen=True)
 class CommandCfg(ConfigMixin):
     resampling_time_range: tuple[float, float] = (4.0, 8.0)
+    heading_command: bool = True
+    heading_control_stiffness: float = 0.5
+    heading_env_ratio: float = 1.0
     standing_env_ratio: float = 0.1
     ranges: VelocityRangesCfg = field(default_factory=VelocityRangesCfg)
 
@@ -73,6 +112,7 @@ class CommandCfg(ConfigMixin):
 class RandomizationCfg(ConfigMixin):
     static_friction_range: tuple[float, float] = (0.6, 1.2)
     dynamic_friction_range: tuple[float, float] = (0.5, 1.0)
+    friction_buckets: int = 64
     pelvis_mass_delta: tuple[float, float] = (-3.0, 3.0)
     pelvis_com_x: tuple[float, float] = (-0.03, 0.03)
     pelvis_com_y: tuple[float, float] = (-0.03, 0.03)
@@ -188,6 +228,7 @@ class EnvCfg(ConfigMixin):
     actions: ActionCfg = field(default_factory=ActionCfg)
     observations: ObservationCfg = field(default_factory=ObservationCfg)
     sensors: SensorCfg = field(default_factory=SensorCfg)
+    viewer: ViewerCfg = field(default_factory=ViewerCfg)
     commands: CommandCfg = field(default_factory=CommandCfg)
     randomization: RandomizationCfg = field(default_factory=RandomizationCfg)
     terrain: TerrainCfg = field(default_factory=TerrainCfg)
@@ -203,16 +244,52 @@ class EnvCfg(ConfigMixin):
     def validate(self, *, require_assets: bool = True) -> None:
         if self.task_kind not in {"flat", "rough"}:
             raise ValueError(f"Unsupported task kind: {self.task_kind}")
-        if self.sim.dt <= 0 or self.sim.decimation <= 0:
-            raise ValueError("Simulation dt and decimation must be positive")
+        if self.sim.dt <= 0 or self.sim.decimation <= 0 or self.sim.render_interval <= 0:
+            raise ValueError("Simulation dt, decimation, and render_interval must be positive")
+        gpu_capacities = (
+            self.sim.gpu_max_rigid_contact_count,
+            self.sim.gpu_max_rigid_patch_count,
+            self.sim.gpu_found_lost_pairs_capacity,
+            self.sim.gpu_found_lost_aggregate_pairs_capacity,
+            self.sim.gpu_total_aggregate_pairs_capacity,
+            self.sim.gpu_heap_capacity,
+            self.sim.gpu_temp_buffer_capacity,
+            self.sim.gpu_max_num_partitions,
+            self.sim.gpu_collision_stack_size,
+        )
+        if any(value <= 0 for value in gpu_capacities):
+            raise ValueError("GPU PhysX capacities must be positive")
         if self.scene.num_envs <= 0:
             raise ValueError("scene.num_envs must be positive")
         if self.terrain.num_rows <= 0 or self.terrain.num_cols <= 0:
             raise ValueError("Terrain rows and columns must be positive")
         if self.actions.dimension != len(self.robot.joint_names):
             raise ValueError("Action dimension must match the robot joint count")
+        if self.sensors.contact_history_length <= 0:
+            raise ValueError("sensors.contact_history_length must be positive")
         if self.observations.dimension != OBSERVATION_DIM:
             raise ValueError(f"Policy observation dimension must remain {OBSERVATION_DIM}")
+        if len(self.viewer.resolution) != 2 or any(value <= 0 for value in self.viewer.resolution):
+            raise ValueError("Viewer resolution must contain two positive values")
+        if not self.viewer.camera_prim_path.startswith("/"):
+            raise ValueError("Viewer camera_prim_path must be an absolute USD path")
+        command_ranges = (
+            self.commands.resampling_time_range,
+            self.commands.ranges.lin_vel_x,
+            self.commands.ranges.lin_vel_y,
+            self.commands.ranges.ang_vel_z,
+            self.commands.ranges.heading,
+        )
+        if any(low > high for low, high in command_ranges):
+            raise ValueError("Command ranges must be ordered from low to high")
+        if self.commands.resampling_time_range[0] <= 0.0:
+            raise ValueError("Command resampling times must be positive")
+        if self.commands.heading_control_stiffness < 0.0:
+            raise ValueError("Command heading_control_stiffness must be non-negative")
+        if not 0.0 <= self.commands.heading_env_ratio <= 1.0:
+            raise ValueError("Command heading_env_ratio must be between zero and one")
+        if not 0.0 <= self.commands.standing_env_ratio <= 1.0:
+            raise ValueError("Command standing_env_ratio must be between zero and one")
         scan_x, scan_y = self.sensors.height_scan_size
         scan_points = (round(scan_x / self.sensors.height_scan_resolution) + 1) * (
             round(scan_y / self.sensors.height_scan_resolution) + 1
@@ -228,6 +305,13 @@ class EnvCfg(ConfigMixin):
         if len(self.reward_weights()) != len(self.rewards):
             raise ValueError("Reward term names must be unique")
         randomization_ranges = (
+            self.observations.noise.base_linear_velocity,
+            self.observations.noise.base_angular_velocity,
+            self.observations.noise.projected_gravity,
+            self.observations.noise.relative_joint_positions,
+            self.observations.noise.joint_velocities,
+            self.observations.noise.terrain_height_scan,
+            self.observations.height_scan_clip,
             self.randomization.static_friction_range,
             self.randomization.dynamic_friction_range,
             self.randomization.pelvis_mass_delta,
@@ -247,85 +331,28 @@ class EnvCfg(ConfigMixin):
         )
         if any(low > high for low, high in randomization_ranges):
             raise ValueError("Randomization ranges must be ordered from low to high")
+        if self.randomization.friction_buckets <= 0:
+            raise ValueError("randomization.friction_buckets must be positive")
         self.robot.validate(require_assets=require_assets)
 
 
-def _replace_reward_weights(
-    terms: tuple[RewardTermCfg, ...], replacements: dict[str, float]
-) -> tuple[RewardTermCfg, ...]:
-    return tuple(replace(term, weight=replacements.get(term.name, term.weight)) for term in terms)
+def load_env_cfg(path: str | Path) -> EnvCfg:
+    cfg = EnvCfg.from_yaml(path)
+    cfg.validate()
+    return cfg
 
 
 def make_rough_env_cfg() -> EnvCfg:
-    cfg = EnvCfg(task_kind="rough", play=False)
-    cfg.validate()
-    return cfg
-
-
-def make_rough_play_env_cfg() -> EnvCfg:
-    train = make_rough_env_cfg()
-    cfg = replace(
-        train,
-        play=True,
-        scene=replace(train.scene, num_envs=16),
-        observations=replace(train.observations, enable_corruption=False),
-        terrain=replace(
-            train.terrain,
-            num_rows=5,
-            num_cols=5,
-            max_initial_level=None,
-            curriculum=False,
-        ),
-        randomization=replace(
-            train.randomization,
-            randomize_actuator_gains=False,
-            apply_external_force=False,
-            apply_periodic_push=False,
-        ),
-    )
-    cfg.validate()
-    return cfg
+    return load_env_cfg(ROUGH_ENV_PRESET)
 
 
 def make_flat_env_cfg() -> EnvCfg:
-    rough = make_rough_env_cfg()
-    cfg = replace(
-        rough,
-        task_kind="flat",
-        terrain=TerrainCfg(
-            terrain_type="plane",
-            max_initial_level=None,
-            curriculum=False,
-            patches=(),
-        ),
-        rewards=_replace_reward_weights(
-            rough.rewards,
-            {
-                "lin_vel_z_l2": -0.5,
-                "flat_orientation_l2": -1.5,
-                "feet_air_time": 0.75,
-                "action_rate_l2": -0.005,
-            },
-        ),
-        randomization=replace(rough.randomization, apply_periodic_push=False),
-    )
-    cfg.validate()
-    return cfg
+    return load_env_cfg(FLAT_ENV_PRESET)
 
 
 def make_flat_play_env_cfg() -> EnvCfg:
-    train = make_flat_env_cfg()
-    cfg = replace(
-        train,
-        play=True,
-        scene=replace(train.scene, num_envs=16),
-        observations=replace(train.observations, enable_corruption=False),
-        randomization=replace(
-            train.randomization,
-            randomize_actuator_gains=False,
-            apply_external_force=False,
-            apply_periodic_push=False,
-        ),
-    )
-    cfg.validate()
-    return cfg
+    return load_env_cfg(FLAT_PLAY_ENV_PRESET)
+
+
+def make_rough_play_env_cfg() -> EnvCfg:
+    return load_env_cfg(ROUGH_PLAY_ENV_PRESET)

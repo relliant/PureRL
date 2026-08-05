@@ -134,12 +134,12 @@ Flat 和 rough 环境都必须输出相同维度，使 flat checkpoint 能继续
 2. 将 action 转换为 PD joint target。
 3. 执行 4 次 physics step。
 4. 按更新周期刷新 articulation state 和传感器。
-5. 更新 episode counter 和 velocity command。
+5. 更新 episode counter。
 6. 计算 terminated 和 truncated。
-7. 使用 reset 前终态计算 reward 和 episode statistics。
-8. 保存需要的 terminal information。
-9. 仅 reset 已完成的环境。
-10. 处理 reset/interval event 和 terrain curriculum。
+7. 使用本步更新前的 velocity command 和 reset 前终态计算 reward 与 episode statistics。
+8. 保存需要的 terminal information，并更新 terrain curriculum。
+9. 仅 reset 已完成的环境并处理 reset event。
+10. 更新 heading/velocity command，再处理 interval event。
 11. 计算并返回 reset 后 observation。
 
 ### 5.4 Reset
@@ -173,7 +173,9 @@ Flat 和 rough 环境都必须输出相同维度，使 flat checkpoint 能继续
 - 259 维 observation 的每一段都有名称、offset、shape 和数值样本。
 - 每个 reward term 都有独立参考值，而不只有总 reward。
 
-注意：当前环境中 README 指向的 `/home/vega/IsaacLab` 不存在。如果无法恢复对应 revision，严格数值对齐将无法完成，需要在实施前明确接受 checkpoint 行为漂移风险。
+实施结果：已恢复 Isaac Lab revision `2ed331acfc` 和 PureRL revision `b6e5f36` 的历史运行环境，
+并将真实 simulator reference 保存为仓库内 JSON/NPZ fixture。当前运行时和测试读取 fixture 时均不
+import Isaac Lab；历史源码仅用于一次性采集，不属于项目依赖。
 
 ### 阶段 1：独立配置、依赖和应用启动层
 
@@ -449,7 +451,7 @@ isaaclab.sh
 - 2048/4096 env 性能满足约定基准。
 - README 提供完全独立、可复现的安装和运行说明。
 
-## 11. 当前实施进度（2026-08-03）
+## 11. 当前实施进度（2026-08-05）
 
 已完成并验证：
 
@@ -464,10 +466,61 @@ isaaclab.sh
 - flat checkpoint 已在 rough play 环境成功加载并执行，不存在 observation shape mismatch。
 - 旧 extension manifest、旧任务配置、旧 asset 配置和训练脚本中的可执行 Isaac Lab 引用已移除。
 - URDF 与 21 个 mesh 已迁入 Python package；wheel 构建及 package-data 内容检查通过。
+- ObservationManager 已实现逐 term uniform corruption、独立 seeded CPU/CUDA generator、reset seed
+  可复现和 play corruption 关闭；259 维 schema 和 height scan `[-1, 1]` clip 已由测试锁定。
+- startup randomization 已实现 64 桶逐环境 static/dynamic friction，并通过 PhysX live material
+  tensor 回读确认所有 robot collision shape 均已更新、restitution 为零。
+- GPU PhysX contact、patch、pair、heap、buffer 和 collision stack 容量已显式配置，4096 rough
+  环境不再依赖 Isaac Sim 的小规模默认值。
+- rough 共址环境改用显式 USD/PhysX collision groups，terrain 作为 global collision object；
+  4096 环境 50 步实测仅 3 次 pelvis contact，不再发生跨环境 robot collision。
+- 新增 `scripts/tools/benchmark_env.py`，覆盖吞吐、逐项 termination、全状态 finite 检查、
+  PyTorch/CUDA 整卡显存和显存增长硬门禁。
+- 恢复并锁定历史 Isaac Lab/PureRL revision，fixture 覆盖 259 维 observation、20-joint
+  articulation 顺序、逐 term reward、termination、selective reset、heading target、rough terrain
+  mesh/origin/assignment 和 4-env 16-step 固定 action 轨迹。
+- velocity command manager 已恢复 heading target、比例 mask、standing mask、wrap/clip、随机采样
+  顺序及 reward 后更新时序；command 轨迹 RMSE 从未实现 heading 时的 `0.70035` 降至 `0.01992`。
+- camera `rgb_array` 和 MP4 路径已完成，640x360 的 12 帧检查中 11 帧为非空画面。
+- checkpoint 自然数字排序、save/resume 下一 iteration、flat-to-rough pretrained、play、JIT/ONNX
+  export 均由 `check_rsl_workflow.py` 覆盖。
+- W&B 支持 online/offline/disabled、project/entity/tags/run ID/resume；offline smoke 已确认数据写入
+  当前训练 run 目录，writer 在退出时显式关闭。
+- 源码和脚本禁止依赖扫描、61 个 CPU 测试、Ruff、flat/rough GPU smoke、wheel/package-data
+  检查均通过。
 
-尚未完成：
+RTX 4090、CPU governor 为 powersave 时的当前基准如下。rough 数据为显式碰撞过滤修复后的
+零动作 50-step 测量；数值用于当前机器回归，不作为跨硬件绝对指标。
 
-- per-environment contact-material friction 随机化。
-- observation noise/corruption 的数值对齐。
-- 2048/4096 环境吞吐基准、10,000 step 长稳测试和旧实现数值 fixture 对齐。
-- camera/video 路径以及更完整的 checkpoint resume 自动化集成测试。
+| Task | Envs | Transitions/s | CUDA device memory | Pelvis contacts |
+| --- | ---: | ---: | ---: | ---: |
+| Flat | 2048 | 20,712.32 | 8.26 -> 8.61 GiB | - |
+| Flat | 4096 | 30,793.26 | 9.67 -> 9.92 GiB | - |
+| Rough | 2048 | 13,768.42 | 9,918 MiB stable | 2 |
+| Rough | 4096 | 18,276.59 | 10,932 -> 10,972 MiB | 3 |
+
+长稳门禁已通过 flat 32 env、10,000 policy steps（40,000 physics substeps）：6,376 次
+episode completion，无 NaN/Inf 或 simulator error，第 2,000 到 10,000 步整卡显存增长
+`0.0 MiB`，PyTorch allocated 增长 `0.002 MiB`。
+
+### 11.1 轨迹迁移结果
+
+`scripts/tools/check_legacy_trajectory.py` 在固定初始 root/joint/command/heading target 后执行相同
+16-step action。MDP 数学与 lifecycle 语义已对齐，但直接 Isaac Sim backend 与历史 Isaac Lab
+封装的物理轨迹并非逐位一致。当前 RTX 4090 / Isaac Sim 5.1 实测如下：
+
+| Field | RMSE | Max absolute error | Gate |
+| --- | ---: | ---: | ---: |
+| Root position | 0.04623 | 0.16251 | 0.18 |
+| Joint position | 0.16576 | 0.61998 | 0.65 |
+| Velocity command | 0.01992 | 0.11034 | 0.12 |
+| Reward | 0.01382 | 0.05248 | 0.06 |
+
+termination term、terminated 和 truncated agreement 均为 `1.0`。门禁同时要求上述误差有限且不
+超过记录包络；这些阈值用于检测进一步回归，不表示两个物理 backend 数值等价。逐 term reward
+数学使用 fixture state 的 CPU 测试保持 `rtol=2e-5, atol=2e-5`。
+
+### 11.2 完成状态
+
+阶段 0-6 的实现项和自动化工作流均已完成。仍需作为持续工程门禁维护的项目是不同 GPU/driver
+上的吞吐基线、长时间训练稳定性和上述物理迁移包络；它们不再要求外部 Isaac Lab checkout。

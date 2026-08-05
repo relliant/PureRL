@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .base import ConfigMixin
+
+PRESET_DIR = Path(__file__).resolve().parent / "presets"
+FLAT_RUNNER_PRESET = PRESET_DIR / "flat_runner.yaml"
+ROUGH_RUNNER_PRESET = PRESET_DIR / "rough_runner.yaml"
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,11 @@ class OnPolicyRunnerCfg(ConfigMixin):
     clip_actions: float | None = None
     logger: str = "tensorboard"
     wandb_project: str = "purerl"
+    wandb_entity: str | None = None
+    wandb_mode: str = "online"
+    wandb_tags: tuple[str, ...] = ()
+    wandb_run_id: str | None = None
+    wandb_resume: str = "never"
     neptune_project: str = "purerl"
     resume: bool = False
     load_run: str = ".*"
@@ -65,15 +75,25 @@ class OnPolicyRunnerCfg(ConfigMixin):
             raise ValueError(f"Unsupported runner: {self.class_name}")
         if "policy" not in self.obs_groups or "critic" not in self.obs_groups:
             raise ValueError("RSL-RL requires policy and critic observation groups")
+        if self.logger not in {"tensorboard", "wandb", "neptune"}:
+            raise ValueError(f"Unsupported logger: {self.logger}")
+        if not self.wandb_project:
+            raise ValueError("wandb_project cannot be empty")
+        if self.wandb_mode not in {"online", "offline", "disabled"}:
+            raise ValueError(f"Unsupported W&B mode: {self.wandb_mode}")
+        if self.wandb_resume not in {"allow", "must", "never", "auto"}:
+            raise ValueError(f"Unsupported W&B resume mode: {self.wandb_resume}")
+
+
+def load_runner_cfg(path: str | Path) -> OnPolicyRunnerCfg:
+    cfg = OnPolicyRunnerCfg.from_yaml(path)
+    cfg.validate()
+    return cfg
 
 
 def make_rough_runner_cfg() -> OnPolicyRunnerCfg:
-    cfg = OnPolicyRunnerCfg()
-    cfg.validate()
-    return cfg
+    return load_runner_cfg(ROUGH_RUNNER_PRESET)
 
 
 def make_flat_runner_cfg() -> OnPolicyRunnerCfg:
-    cfg = OnPolicyRunnerCfg(max_iterations=2500, experiment_name="tienkung_flat")
-    cfg.validate()
-    return cfg
+    return load_runner_cfg(FLAT_RUNNER_PRESET)

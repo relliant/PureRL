@@ -49,8 +49,11 @@ def test_contact_history_tracks_first_contact_and_air_time():
     assert history.first_contact.tolist() == [[True, False]]
     assert np.allclose(history.last_air_time, [[0.2, 0.0]])
     assert np.allclose(history.current_air_time, [[0.0, 0.2]])
+    assert np.allclose(history.current_contact_time, [[0.1, 0.0]])
 
     history.update(left_contact, 0.1)
     assert history.first_contact.tolist() == [[False, False]]
+    assert np.allclose(history.current_contact_time, [[0.2, 0.0]])
     history.reset(np.asarray([0]))
     assert np.allclose(history.current_air_time, 0.0)
+    assert np.allclose(history.current_contact_time, 0.0)

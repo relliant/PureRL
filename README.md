@@ -29,6 +29,7 @@ uv python install 3.11
 uv venv --python 3.11 --seed .venv
 source .venv/bin/activate
 uv pip install --extra-index-url https://pypi.nvidia.com -e "source/purerl[sim,dev]"
+export OMNI_KIT_ACCEPT_EULA=YES
 ```
 
 Validate the local package without starting Isaac Sim:
@@ -49,7 +50,63 @@ python scripts/tools/check_flat_env.py --num-envs 32 --steps 1000 \
   --random-actions --check-selective-reset
 python scripts/tools/check_rough_env.py --num-envs 7 --steps 64 \
   --terrain-rows 2 --terrain-cols 7
+python scripts/tools/check_camera_video.py --frames 12
+python scripts/tools/check_legacy_trajectory.py
 ```
+
+Measure throughput, tensor stability, termination causes, and CUDA memory at
+training scale:
+
+```bash
+python scripts/tools/benchmark_env.py \
+  --task PureRL-Velocity-Rough-TienKung-v0 \
+  --num-envs 2048 --warmup-steps 32 --steps 100 --check-interval 25
+
+python scripts/tools/benchmark_env.py \
+  --task PureRL-Velocity-Flat-TienKung-v0 \
+  --num-envs 32 --warmup-steps 32 --steps 10000 \
+  --memory-baseline-step 2000 --progress-interval 1000 --random-actions
+```
+
+## Configuration
+
+Environment and RSL-RL training values are stored as complete, directly
+editable YAML presets under `source/purerl/purerl/config/presets`:
+
+| Task variant | Environment config | Runner config |
+| --- | --- | --- |
+| Flat train | `flat_env.yaml` | `flat_runner.yaml` |
+| Flat play | `flat_play_env.yaml` | `flat_runner.yaml` |
+| Rough train | `rough_env.yaml` | `rough_runner.yaml` |
+| Rough play | `rough_play_env.yaml` | `rough_runner.yaml` |
+
+Each environment preset includes simulation, scene, robot, action,
+observation, sensor, command, randomization, terrain, and reward values. Each
+runner preset includes policy, PPO, checkpoint, and logger values. Presets do
+not inherit from one another, so a file shows the complete configuration that
+will be loaded for that variant. Relative filesystem paths, including
+`robot.urdf_path`, are resolved relative to the YAML file that declares them.
+
+Pass custom complete configs to either training or playback:
+
+```bash
+python scripts/rsl_rl/train.py \
+  --task PureRL-Velocity-Flat-TienKung-v0 \
+  --env-config configs/my_flat_env.yaml \
+  --runner-config configs/my_flat_runner.yaml
+
+python scripts/rsl_rl/play.py \
+  --task PureRL-Velocity-Flat-TienKung-Play-v0 \
+  --env-config configs/my_flat_play_env.yaml \
+  --runner-config configs/my_flat_runner.yaml \
+  --checkpoint /absolute/path/to/model.pt
+```
+
+`--agent-config` remains available as an alias for `--runner-config`. Values
+are resolved in this order: the selected YAML preset, dataclass type conversion
+and validation, then explicit CLI overrides such as `--num-envs`, `--device`,
+or `--max-iterations`. The final resolved configs are written to the run's
+`params/env.yaml` and `params/agent.yaml` files.
 
 ## Training
 
@@ -76,12 +133,49 @@ Checkpoints are written below `logs/rsl_rl/tienkung_flat` and
 `logs/rsl_rl/tienkung_rough`. Start with 2048 environments if the default 4096
 exceeds available GPU memory.
 
+Resume from the latest matching checkpoint in a run, or pass explicit run and
+checkpoint paths:
+
+```bash
+python scripts/rsl_rl/train.py \
+  --task PureRL-Velocity-Flat-TienKung-v0 --resume \
+  --load-run /absolute/path/to/previous/run \
+  --load-checkpoint /absolute/path/to/model_100.pt
+```
+
+Use W&B online or offline logging with the same run directory as checkpoints
+and serialized configs:
+
+```bash
+python scripts/rsl_rl/train.py \
+  --task PureRL-Velocity-Flat-TienKung-v0 \
+  --logger wandb --wandb-mode online --wandb-project purerl \
+  --wandb-entity YOUR_ENTITY --wandb-tags flat baseline
+
+python scripts/rsl_rl/train.py \
+  --task PureRL-Velocity-Flat-TienKung-v0 \
+  --logger wandb --wandb-mode offline --wandb-project purerl
+```
+
+For an online W&B run continuation, also provide `--wandb-run-id` and set
+`--wandb-resume allow`. Validate save, resume, flat-to-rough transfer, export,
+and offline W&B logging together with:
+
+```bash
+python scripts/tools/check_rsl_workflow.py --wandb-offline
+```
+
 ## Evaluation And Export
 
 ```bash
 python scripts/rsl_rl/play.py \
   --task PureRL-Velocity-Rough-TienKung-Play-v0 \
   --num-envs 16 --checkpoint /absolute/path/to/model.pt
+
+python scripts/rsl_rl/play.py \
+  --task PureRL-Velocity-Rough-TienKung-Play-v0 \
+  --checkpoint /absolute/path/to/model.pt \
+  --video --video-length 500 --video-path videos/rough.mp4
 ```
 
 The play command exports `policy.pt` and `policy.onnx` into an `exported`
@@ -92,13 +186,22 @@ directory next to the checkpoint. Use `--no-export` to run inference only.
 - Physics frequency: 200 Hz (`dt=0.005`).
 - Policy frequency: 50 Hz (`decimation=4`).
 - Action: 20 position residuals with a `0.5 rad` scale.
+- Velocity commands use a sampled world-heading target, proportional yaw
+  control with gain `0.5`, and a 10% standing-environment ratio.
 - Contact history update: every physics step.
 - Height scan update: every policy step.
 - Rough terrain: flat, random rough, slopes, stairs, and random blocks.
+- Rough environments use explicit PhysX collision groups so robots assigned to
+  the same terrain tile cannot collide with each other.
 - Selective reset and terrain-level curriculum are batched by environment ID.
 - Domain events: pelvis mass/COM, PD gains, joint/root reset pose, external
   wrench, and periodic planar velocity pushes.
-
-The current direct backend still uses fixed contact-material friction and does
-not yet apply policy-observation noise. These remaining alignment items are
-tracked in `ISAACLAB_DECOUPLING_REFACTOR_PLAN.md`.
+- Robot contact friction is randomized per environment from 64 coefficient
+  buckets and written to every robot collision shape.
+- Training observations apply term-specific uniform corruption to base
+  velocities, projected gravity, joint state, and height scan. Play tasks
+  disable corruption; height scan values are always clipped to `[-1, 1]`.
+- Legacy fixtures lock the historical Isaac Lab/PureRL revisions, articulation
+  joint order, term-level reward math, reset behavior, terrain assignment, and
+  a 16-step action trajectory. The direct backend is checked against documented
+  migration tolerances rather than claimed to be bitwise physics-identical.

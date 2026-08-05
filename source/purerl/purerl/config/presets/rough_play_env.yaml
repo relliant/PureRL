@@ -1,0 +1,224 @@
+task_kind: rough
+play: true
+seed: 42
+episode_length_s: 20.0
+sim:
+  dt: 0.005
+  decimation: 4
+  device: cuda:0
+  render_interval: 4
+  gpu_max_rigid_contact_count: 8388608
+  gpu_max_rigid_patch_count: 4194304
+  gpu_found_lost_pairs_capacity: 2097152
+  gpu_found_lost_aggregate_pairs_capacity: 33554432
+  gpu_total_aggregate_pairs_capacity: 2097152
+  gpu_heap_capacity: 67108864
+  gpu_temp_buffer_capacity: 16777216
+  gpu_max_num_partitions: 8
+  gpu_collision_stack_size: 67108864
+scene:
+  num_envs: 16
+  env_spacing: 2.5
+robot:
+  urdf_path: ../../assets/robot_description/tienkung/tienkung2_lite.urdf
+  root_body_name: pelvis
+  foot_body_names: [ankle_roll_l_link, ankle_roll_r_link]
+  joint_names:
+    - hip_roll_l_joint
+    - hip_roll_r_joint
+    - shoulder_pitch_l_joint
+    - shoulder_pitch_r_joint
+    - hip_pitch_l_joint
+    - hip_pitch_r_joint
+    - shoulder_roll_l_joint
+    - shoulder_roll_r_joint
+    - hip_yaw_l_joint
+    - hip_yaw_r_joint
+    - shoulder_yaw_l_joint
+    - shoulder_yaw_r_joint
+    - knee_pitch_l_joint
+    - knee_pitch_r_joint
+    - elbow_pitch_l_joint
+    - elbow_pitch_r_joint
+    - ankle_pitch_l_joint
+    - ankle_pitch_r_joint
+    - ankle_roll_l_joint
+    - ankle_roll_r_joint
+  default_root_height: 0.89
+  default_joint_positions: [0.0, 0.0, 0.0, 0.0, -0.5, -0.5, 0.1, -0.1, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, -0.3, -0.3, -0.5, -0.5, 0.0, 0.0]
+  stiffness: [700.0, 700.0, 60.0, 60.0, 700.0, 700.0, 20.0, 20.0, 500.0, 500.0, 10.0, 10.0, 700.0, 700.0, 10.0, 10.0, 30.0, 30.0, 16.8, 16.8]
+  damping: [10.0, 10.0, 3.0, 3.0, 10.0, 10.0, 1.5, 1.5, 5.0, 5.0, 1.0, 1.0, 10.0, 10.0, 1.0, 1.0, 2.5, 2.5, 1.4, 1.4]
+  effort_limits: [180.0, 180.0, 52.5, 52.5, 300.0, 300.0, 52.5, 52.5, 180.0, 180.0, 52.5, 52.5, 300.0, 300.0, 52.5, 52.5, 60.0, 60.0, 30.0, 30.0]
+  velocity_limits: [15.6, 15.6, 14.1, 14.1, 15.6, 15.6, 14.1, 14.1, 15.6, 15.6, 14.1, 14.1, 15.6, 15.6, 14.1, 14.1, 12.8, 12.8, 7.8, 7.8]
+  armature: [0.0103, 0.0103, 0.003597, 0.003597, 0.0251, 0.0251, 0.003597, 0.003597, 0.0103, 0.0103, 0.003597, 0.003597, 0.0251, 0.0251, 0.003597, 0.003597, 0.003597, 0.003597, 0.003597, 0.003597]
+  merge_fixed_joints: true
+  self_collisions: false
+  solver_position_iterations: 8
+  solver_velocity_iterations: 4
+actions:
+  dimension: 20
+  scale: 0.5
+  clip: 1.0
+  use_default_offset: true
+observations:
+  dimension: 259
+  height_scan_points: 187
+  enable_corruption: false
+  noise:
+    base_linear_velocity: [-0.1, 0.1]
+    base_angular_velocity: [-0.2, 0.2]
+    projected_gravity: [-0.05, 0.05]
+    relative_joint_positions: [-0.01, 0.01]
+    joint_velocities: [-1.5, 1.5]
+    terrain_height_scan: [-0.1, 0.1]
+  height_scan_clip: [-1.0, 1.0]
+sensors:
+  contact_update_period: 0.005
+  height_scan_update_period: 0.02
+  contact_history_length: 3
+  height_scan_size: [1.6, 1.0]
+  height_scan_resolution: 0.1
+  height_scan_offset: 0.5
+viewer:
+  eye: [3.0, 3.0, 2.0]
+  look_at: [0.0, 0.0, 0.8]
+  camera_prim_path: /OmniverseKit_Persp
+  resolution: [1280, 720]
+commands:
+  resampling_time_range: [4.0, 8.0]
+  heading_command: true
+  heading_control_stiffness: 0.5
+  heading_env_ratio: 1.0
+  standing_env_ratio: 0.1
+  ranges:
+    lin_vel_x: [-0.5, 1.2]
+    lin_vel_y: [-0.4, 0.4]
+    ang_vel_z: [-1.0, 1.0]
+    heading: [-3.141592653589793, 3.141592653589793]
+randomization:
+  static_friction_range: [0.6, 1.2]
+  dynamic_friction_range: [0.5, 1.0]
+  friction_buckets: 64
+  pelvis_mass_delta: [-3.0, 3.0]
+  pelvis_com_x: [-0.03, 0.03]
+  pelvis_com_y: [-0.03, 0.03]
+  pelvis_com_z: [-0.02, 0.02]
+  actuator_gain_scale: [0.9, 1.1]
+  joint_position_scale: [0.9, 1.1]
+  root_x: [-0.5, 0.5]
+  root_y: [-0.5, 0.5]
+  root_yaw: [-3.141592653589793, 3.141592653589793]
+  external_force: [-5.0, 5.0]
+  external_torque: [-5.0, 5.0]
+  push_interval_s: [10.0, 15.0]
+  push_velocity_x: [-0.5, 0.5]
+  push_velocity_y: [-0.5, 0.5]
+  randomize_actuator_gains: false
+  apply_external_force: false
+  apply_periodic_push: false
+terrain:
+  terrain_type: generator
+  size: [8.0, 8.0]
+  border_width: 20.0
+  num_rows: 5
+  num_cols: 5
+  horizontal_scale: 0.1
+  vertical_scale: 0.005
+  slope_threshold: 0.75
+  max_initial_level: null
+  curriculum: false
+  patches:
+    - name: flat
+      proportion: 0.1
+      noise_range: null
+      noise_step: null
+      slope_range: null
+      step_height_range: null
+      step_width: null
+      grid_width: null
+      grid_height_range: null
+      platform_width: 2.5
+      patch_border_width: 0.25
+    - name: random_rough
+      proportion: 0.2
+      noise_range: [0.01, 0.08]
+      noise_step: 0.01
+      slope_range: null
+      step_height_range: null
+      step_width: null
+      grid_width: null
+      grid_height_range: null
+      platform_width: 2.5
+      patch_border_width: 0.25
+    - name: slope_up
+      proportion: 0.1
+      noise_range: null
+      noise_step: null
+      slope_range: [0.0, 0.3]
+      step_height_range: null
+      step_width: null
+      grid_width: null
+      grid_height_range: null
+      platform_width: 2.5
+      patch_border_width: 0.25
+    - name: slope_down
+      proportion: 0.1
+      noise_range: null
+      noise_step: null
+      slope_range: [0.0, 0.3]
+      step_height_range: null
+      step_width: null
+      grid_width: null
+      grid_height_range: null
+      platform_width: 2.5
+      patch_border_width: 0.25
+    - name: stairs_up
+      proportion: 0.15
+      noise_range: null
+      noise_step: null
+      slope_range: null
+      step_height_range: [0.02, 0.16]
+      step_width: 0.35
+      grid_width: null
+      grid_height_range: null
+      platform_width: 2.5
+      patch_border_width: 1.0
+    - name: stairs_down
+      proportion: 0.15
+      noise_range: null
+      noise_step: null
+      slope_range: null
+      step_height_range: [0.02, 0.16]
+      step_width: 0.35
+      grid_width: null
+      grid_height_range: null
+      platform_width: 2.5
+      patch_border_width: 1.0
+    - name: random_blocks
+      proportion: 0.2
+      noise_range: null
+      noise_step: null
+      slope_range: null
+      step_height_range: null
+      step_width: null
+      grid_width: 0.45
+      grid_height_range: [0.02, 0.12]
+      platform_width: 2.5
+      patch_border_width: 0.25
+rewards:
+  - {name: termination_penalty, weight: -200.0}
+  - {name: track_lin_vel_xy_exp, weight: 1.5}
+  - {name: track_ang_vel_z_exp, weight: 0.75}
+  - {name: lin_vel_z_l2, weight: -1.5}
+  - {name: ang_vel_xy_l2, weight: -0.1}
+  - {name: flat_orientation_l2, weight: -1.0}
+  - {name: dof_torques_l2, weight: -1.0e-6}
+  - {name: dof_acc_l2, weight: -2.5e-7}
+  - {name: action_rate_l2, weight: -0.01}
+  - {name: feet_air_time, weight: 0.5}
+  - {name: feet_slide, weight: -0.25}
+  - {name: undesired_contacts, weight: -1.0}
+  - {name: dof_pos_limits, weight: -1.0}
+  - {name: joint_deviation_hip, weight: -0.1}
+  - {name: joint_deviation_arms, weight: -0.05}
+  - {name: stand_still, weight: -0.2}

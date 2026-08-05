@@ -1,6 +1,7 @@
 {
-  "baseline_kind": "static_source_contract",
-  "simulator_reference_available": false,
+  "baseline_kind": "isaaclab_simulator_reference",
+  "simulator_reference_available": true,
+  "simulator_reference_fixture": "isaaclab_legacy_reference.npz",
   "action": {
     "dimension": 20,
     "scale": 0.5
