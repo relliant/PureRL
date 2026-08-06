@@ -80,6 +80,13 @@ def test_environment_variants_are_explicit_and_checkpoint_compatible():
     assert flat.observations.dimension == rough.observations.dimension == OBSERVATION_DIM
     assert flat.scene.num_envs == rough.scene.num_envs == 4096
     assert flat_play.scene.num_envs == rough_play.scene.num_envs == 1
+    assert not flat.sensors.lidar.enabled
+    assert not rough.sensors.lidar.enabled
+    assert flat_play.sensors.lidar.enabled
+    assert rough_play.sensors.lidar.enabled
+    assert rough_play.sensors.lidar.config_file_name == "OS1"
+    assert rough_play.sensors.lidar.variant == "OS1_REV6_32ch10hz512res"
+    assert rough_play.visuals.sky_color == (0.53, 0.69, 0.9)
     assert not flat_play.observations.enable_corruption
     assert not rough_play.terrain.curriculum
     assert rough_play.terrain.max_initial_level is None
@@ -161,6 +168,26 @@ def test_gpu_physx_capacities_must_be_positive():
         invalid.validate(require_assets=False)
 
 
+def test_enabled_lidar_must_select_an_existing_environment():
+    cfg = make_flat_play_env_cfg()
+    invalid = cfg.replace(
+        sensors=cfg.sensors.replace(
+            lidar=cfg.sensors.lidar.replace(env_index=cfg.scene.num_envs)
+        )
+    )
+
+    with pytest.raises(ValueError, match="lidar.env_index"):
+        invalid.validate(require_assets=False)
+
+
+def test_environment_visual_colors_are_validated():
+    cfg = make_flat_env_cfg()
+    invalid = cfg.replace(visuals=cfg.visuals.replace(sky_color=(1.1, 0.5, 0.5)))
+
+    with pytest.raises(ValueError, match="visual colors"):
+        invalid.validate(require_assets=False)
+
+
 def test_runner_configs_expose_rsl_rl_dictionary_contract():
     flat = make_flat_runner_cfg()
     rough = make_rough_runner_cfg()
@@ -180,7 +207,8 @@ def test_runner_configs_expose_rsl_rl_dictionary_contract():
     assert serialized["algorithm"]["gamma"] == 0.994
     assert serialized["algorithm"]["lam"] == 0.9
     assert serialized["num_steps_per_env"] == 60
-    assert serialized["max_iterations"] == 3001
+    assert flat.max_iterations == 3001
+    assert serialized["max_iterations"] == 10001
     assert serialized["min_action_noise_std"] == 0.05
     assert serialized["max_action_noise_std"] == 3.0
     assert serialized["max_checkpoint_noise_std"] == 3.0

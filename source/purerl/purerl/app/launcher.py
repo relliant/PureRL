@@ -10,6 +10,7 @@ from typing import Any
 class AppLauncherCfg:
     headless: bool = True
     enable_cameras: bool = False
+    raytracing_motion: bool = False
     livestream: int = 0
     experience: str | None = None
 
@@ -42,6 +43,11 @@ class IsaacSimLauncher:
             "headless": self.cfg.headless,
             "enable_cameras": self.cfg.enable_cameras,
             "livestream": self.cfg.livestream,
+            "extra_args": (
+                ["--/renderer/raytracingMotion/enabled=true"]
+                if self.cfg.raytracing_motion
+                else []
+            ),
         }
         kwargs = {"experience": self.cfg.experience} if self.cfg.experience else {}
         self._app = SimulationApp(settings, **kwargs)

@@ -79,11 +79,29 @@ sensors:
   height_scan_size: [1.6, 1.0]
   height_scan_resolution: 0.1
   height_scan_offset: 0.5
+  lidar:
+    enabled: true
+    env_index: 0
+    mount_body: head
+    fallback_body: pelvis
+    mount_translation: [0.08, 0.0, 0.03]
+    fallback_translation: [0.08, 0.0, 0.63]
+    orientation: [1.0, 0.0, 0.0, 0.0]
+    config_file_name: OS1
+    variant: OS1_REV6_32ch10hz512res
+    prim_name: HeadLidar
+    collect_point_cloud: true
+    visualize: true
 viewer:
   eye: [3.0, 3.0, 2.0]
   look_at: [0.0, 0.0, 0.8]
   camera_prim_path: /OmniverseKit_Persp
   resolution: [1280, 720]
+visuals:
+  sky_color: [0.53, 0.69, 0.90]
+  sky_intensity: 850.0
+  ground_color: [0.18, 0.28, 0.16]
+  terrain_color: [0.32, 0.30, 0.23]
 commands:
   resampling_time_range: [1000.0, 1000.0]
   heading_command: false

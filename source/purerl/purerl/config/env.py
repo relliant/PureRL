@@ -73,6 +73,22 @@ class ObservationCfg(ConfigMixin):
 
 
 @dataclass(frozen=True)
+class LidarCfg(ConfigMixin):
+    enabled: bool = False
+    env_index: int = 0
+    mount_body: str = "head"
+    fallback_body: str = "pelvis"
+    mount_translation: tuple[float, float, float] = (0.08, 0.0, 0.03)
+    fallback_translation: tuple[float, float, float] = (0.08, 0.0, 0.63)
+    orientation: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
+    config_file_name: str = "OS1"
+    variant: str = "OS1_REV6_32ch10hz512res"
+    prim_name: str = "HeadLidar"
+    collect_point_cloud: bool = True
+    visualize: bool = False
+
+
+@dataclass(frozen=True)
 class SensorCfg(ConfigMixin):
     contact_update_period: float = PHYSICS_DT
     height_scan_update_period: float = PHYSICS_DT * DECIMATION
@@ -80,6 +96,7 @@ class SensorCfg(ConfigMixin):
     height_scan_size: tuple[float, float] = (1.6, 1.0)
     height_scan_resolution: float = 0.1
     height_scan_offset: float = 0.5
+    lidar: LidarCfg = field(default_factory=LidarCfg)
 
 
 @dataclass(frozen=True)
@@ -88,6 +105,14 @@ class ViewerCfg(ConfigMixin):
     look_at: tuple[float, float, float] = (0.0, 0.0, 0.8)
     camera_prim_path: str = "/OmniverseKit_Persp"
     resolution: tuple[int, int] = (1280, 720)
+
+
+@dataclass(frozen=True)
+class EnvironmentVisualCfg(ConfigMixin):
+    sky_color: tuple[float, float, float] = (0.53, 0.69, 0.90)
+    sky_intensity: float = 850.0
+    ground_color: tuple[float, float, float] = (0.18, 0.28, 0.16)
+    terrain_color: tuple[float, float, float] = (0.32, 0.30, 0.23)
 
 
 @dataclass(frozen=True)
@@ -231,6 +256,7 @@ class EnvCfg(ConfigMixin):
     observations: ObservationCfg = field(default_factory=ObservationCfg)
     sensors: SensorCfg = field(default_factory=SensorCfg)
     viewer: ViewerCfg = field(default_factory=ViewerCfg)
+    visuals: EnvironmentVisualCfg = field(default_factory=EnvironmentVisualCfg)
     commands: CommandCfg = field(default_factory=CommandCfg)
     randomization: RandomizationCfg = field(default_factory=RandomizationCfg)
     terrain: TerrainCfg = field(default_factory=TerrainCfg)
@@ -271,12 +297,35 @@ class EnvCfg(ConfigMixin):
             raise ValueError("Action clip must be positive when enabled")
         if self.sensors.contact_history_length <= 0:
             raise ValueError("sensors.contact_history_length must be positive")
+        lidar = self.sensors.lidar
+        if lidar.env_index < 0 or (lidar.enabled and lidar.env_index >= self.scene.num_envs):
+            raise ValueError("sensors.lidar.env_index must select an existing environment")
+        if not lidar.mount_body or not lidar.fallback_body:
+            raise ValueError("LiDAR mount and fallback body names must be non-empty")
+        if not lidar.config_file_name:
+            raise ValueError("LiDAR config_file_name must be non-empty")
+        if not lidar.variant:
+            raise ValueError("LiDAR variant must be non-empty")
+        if not lidar.prim_name or "/" in lidar.prim_name:
+            raise ValueError("LiDAR prim_name must be a single non-empty USD path component")
+        orientation_norm = math.sqrt(sum(value * value for value in lidar.orientation))
+        if not math.isclose(orientation_norm, 1.0, rel_tol=0.0, abs_tol=1.0e-5):
+            raise ValueError("LiDAR orientation must be a normalized scalar-first quaternion")
         if self.observations.dimension != OBSERVATION_DIM:
             raise ValueError(f"Policy observation dimension must remain {OBSERVATION_DIM}")
         if len(self.viewer.resolution) != 2 or any(value <= 0 for value in self.viewer.resolution):
             raise ValueError("Viewer resolution must contain two positive values")
         if not self.viewer.camera_prim_path.startswith("/"):
             raise ValueError("Viewer camera_prim_path must be an absolute USD path")
+        colors = (
+            self.visuals.sky_color,
+            self.visuals.ground_color,
+            self.visuals.terrain_color,
+        )
+        if any(not 0.0 <= channel <= 1.0 for color in colors for channel in color):
+            raise ValueError("Environment visual colors must use values between zero and one")
+        if self.visuals.sky_intensity <= 0.0:
+            raise ValueError("Environment sky intensity must be positive")
         command_ranges = (
             self.commands.resampling_time_range,
             self.commands.ranges.lin_vel_x,

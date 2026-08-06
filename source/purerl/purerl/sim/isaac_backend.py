@@ -12,6 +12,8 @@ from purerl.terrain import assign_terrain_tiles, combine_terrain_meshes, generat
 
 from .articulation import ArticulationIndexMap
 
+_LIDAR_POINT_CLOUD_ANNOTATOR = "IsaacExtractRTXSensorPointCloudNoAccumulator"
+
 
 @dataclass
 class IsaacArticulationState:
@@ -53,6 +55,8 @@ class IsaacSimBackend:
         self.terrain_levels: Any = None
         self.terrain_columns: Any = None
         self.terrain_tile_indices: Any = None
+        self.lidar_prim_path: str | None = None
+        self.lidar_mount_body: str | None = None
         self.contact_material_friction: Any = None
         self.collision_filtering_mode = "spatial_separation"
         self._cfg: EnvCfg | None = None
@@ -64,6 +68,7 @@ class IsaacSimBackend:
         self._contact_view: Any = None
         self._rgb_annotator: Any = None
         self._render_product: Any = None
+        self._head_lidar: Any = None
         self._viewer_configured = False
         self._joint_indices: Any = None
         self._body_view_indices: Any = None
@@ -91,7 +96,7 @@ class IsaacSimBackend:
             from isaacsim.core.cloner import GridCloner
             from isaacsim.core.prims import Articulation, RigidPrim
             from isaacsim.core.utils.stage import add_reference_to_stage, get_current_stage
-            from pxr import PhysxSchema, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade, Vt
+            from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade, Vt
         except ImportError as exc:
             raise RuntimeError(
                 "Isaac Sim must be installed and SimulationApp must be launched before creating the backend"
@@ -143,12 +148,14 @@ class IsaacSimBackend:
                 static_friction=1.0,
                 dynamic_friction=1.0,
                 restitution=0.0,
+                color=np.asarray(cfg.visuals.ground_color, dtype=np.float32),
             )
 
         robot_usd = self._import_robot_usd(omni.kit.commands, cfg)
         stage = get_current_stage()
         sky_light = UsdLux.DomeLight.Define(stage, "/World/skyLight")
-        sky_light.CreateIntensityAttr(750.0)
+        sky_light.CreateColorAttr().Set(Gf.Vec3f(*cfg.visuals.sky_color))
+        sky_light.CreateIntensityAttr(cfg.visuals.sky_intensity)
         if terrain_tiles:
             self._create_rough_terrain(
                 stage,
@@ -158,6 +165,9 @@ class IsaacSimBackend:
                 UsdPhysics,
                 UsdShade,
                 Vt,
+                cfg.visuals.terrain_color,
+                Gf,
+                Sdf,
             )
         base_env_path = "/World/envs/env_0"
         cloner = GridCloner(spacing=0.0 if terrain_assignment is not None else cfg.scene.env_spacing)
@@ -245,6 +255,8 @@ class IsaacSimBackend:
         )
         self._world.reset()
         self._contact_view.initialize()
+        if cfg.sensors.lidar.enabled:
+            self._create_head_lidar(stage, Usd)
 
         if self._articulation.count != self.num_envs:
             raise RuntimeError(
@@ -358,6 +370,24 @@ class IsaacSimBackend:
         if array.ndim != 3 or array.shape[2] < 3:
             raise RuntimeError(f"RGB annotator returned an invalid frame shape: {array.shape}")
         return self._np.array(array[:, :, :3], copy=True)
+
+    def get_lidar_point_cloud(self) -> Any:
+        """Return the latest head LiDAR point cloud as a copied ``N x 3`` array."""
+
+        self._require_initialized()
+        if self._head_lidar is None or not self._cfg.sensors.lidar.collect_point_cloud:
+            return self._np.empty((0, 3), dtype=self._np.float32)
+        payload = self._head_lidar.get_current_frame().get(_LIDAR_POINT_CLOUD_ANNOTATOR)
+        if isinstance(payload, dict):
+            payload = payload.get("data")
+        if payload is None:
+            return self._np.empty((0, 3), dtype=self._np.float32)
+        points = self._np.asarray(payload, dtype=self._np.float32)
+        if points.size == 0:
+            return self._np.empty((0, 3), dtype=self._np.float32)
+        if points.size % 3 != 0:
+            raise RuntimeError(f"RTX LiDAR returned an invalid point cloud shape: {points.shape}")
+        return self._np.array(points.reshape(-1, 3), copy=True)
 
     def refresh(self) -> None:
         self._require_initialized()
@@ -626,6 +656,18 @@ class IsaacSimBackend:
                 pass
         self._rgb_annotator = None
         self._render_product = None
+        if self._head_lidar is not None:
+            try:
+                self._head_lidar.detach_all_writers()
+                self._head_lidar.detach_all_annotators()
+                self._head_lidar.pause()
+                lidar_render_product = getattr(self._head_lidar, "_render_product", None)
+                if lidar_render_product is not None:
+                    lidar_render_product.destroy()
+                    self._head_lidar._render_product = None
+            except Exception:
+                pass
+        self._head_lidar = None
         if self._world is not None:
             world_type = type(self._world)
             self._world.stop()
@@ -726,6 +768,9 @@ class IsaacSimBackend:
         usd_physics: Any,
         usd_shade: Any,
         vt: Any,
+        color: tuple[float, float, float],
+        gf: Any,
+        sdf: Any,
     ) -> None:
         vertices, faces = combine_terrain_meshes(terrain_tiles)
         mesh = usd_geom.Mesh.Define(stage, "/World/terrain/mesh")
@@ -734,23 +779,101 @@ class IsaacSimBackend:
         face_counts = np.full(len(faces), 3, dtype=np.int32)
         mesh.CreateFaceVertexCountsAttr().Set(vt.IntArray.FromNumpy(face_counts))
         mesh.CreateSubdivisionSchemeAttr().Set(usd_geom.Tokens.none)
+        display_color = np.asarray(color, dtype=np.float32).reshape(1, 3)
+        mesh.CreateDisplayColorPrimvar(usd_geom.Tokens.constant).Set(
+            vt.Vec3fArray.FromNumpy(display_color)
+        )
 
         terrain_prim = mesh.GetPrim()
         usd_physics.CollisionAPI.Apply(terrain_prim)
         mesh_collision = usd_physics.MeshCollisionAPI.Apply(terrain_prim)
         mesh_collision.CreateApproximationAttr().Set("none")
 
-        material = usd_shade.Material.Define(stage, "/World/terrain/physicsMaterial")
-        material_api = usd_physics.MaterialAPI.Apply(material.GetPrim())
+        visual_material = usd_shade.Material.Define(stage, "/World/terrain/visualMaterial")
+        visual_shader = usd_shade.Shader.Define(
+            stage,
+            "/World/terrain/visualMaterial/PreviewSurface",
+        )
+        visual_shader.CreateIdAttr("UsdPreviewSurface")
+        visual_shader.CreateInput("diffuseColor", sdf.ValueTypeNames.Color3f).Set(
+            gf.Vec3f(*color)
+        )
+        visual_shader.CreateInput("roughness", sdf.ValueTypeNames.Float).Set(0.9)
+        visual_shader.CreateInput("metallic", sdf.ValueTypeNames.Float).Set(0.0)
+        visual_material.CreateSurfaceOutput().ConnectToSource(
+            visual_shader.ConnectableAPI(),
+            "surface",
+        )
+
+        physics_material = usd_shade.Material.Define(stage, "/World/terrain/physicsMaterial")
+        material_api = usd_physics.MaterialAPI.Apply(physics_material.GetPrim())
         material_api.CreateStaticFrictionAttr().Set(1.0)
         material_api.CreateDynamicFrictionAttr().Set(1.0)
         material_api.CreateRestitutionAttr().Set(0.0)
         binding = usd_shade.MaterialBindingAPI.Apply(terrain_prim)
         binding.Bind(
-            material,
+            visual_material,
+            bindingStrength=usd_shade.Tokens.strongerThanDescendants,
+        )
+        binding.Bind(
+            physics_material,
             bindingStrength=usd_shade.Tokens.strongerThanDescendants,
             materialPurpose="physics",
         )
+
+    def _create_head_lidar(self, stage: Any, usd: Any) -> None:
+        from isaacsim.sensors.rtx import LidarRtx
+
+        lidar_cfg = self._cfg.sensors.lidar
+        robot_path = f"/World/envs/env_{lidar_cfg.env_index}/Robot"
+        mount_path = self._find_named_prim_path(stage, robot_path, lidar_cfg.mount_body, usd)
+        translation = lidar_cfg.mount_translation
+        mount_body = lidar_cfg.mount_body
+        if mount_path is None:
+            mount_path = self._find_named_prim_path(
+                stage,
+                robot_path,
+                lidar_cfg.fallback_body,
+                usd,
+            )
+            translation = lidar_cfg.fallback_translation
+            mount_body = lidar_cfg.fallback_body
+        if mount_path is None:
+            raise RuntimeError(
+                "Unable to mount the head LiDAR: neither "
+                f"{lidar_cfg.mount_body!r} nor {lidar_cfg.fallback_body!r} exists under {robot_path}"
+            )
+
+        self.lidar_prim_path = f"{mount_path}/{lidar_cfg.prim_name}"
+        self.lidar_mount_body = mount_body
+        self._head_lidar = LidarRtx(
+            prim_path=self.lidar_prim_path,
+            name="tienkung_head_lidar",
+            translation=self._np.asarray(translation, dtype=self._np.float32),
+            orientation=self._np.asarray(lidar_cfg.orientation, dtype=self._np.float32),
+            config_file_name=lidar_cfg.config_file_name,
+            variant=lidar_cfg.variant,
+        )
+        self._head_lidar.initialize()
+        if lidar_cfg.collect_point_cloud:
+            self._head_lidar.attach_annotator(_LIDAR_POINT_CLOUD_ANNOTATOR)
+        if lidar_cfg.visualize:
+            self._head_lidar.enable_visualization()
+
+    @staticmethod
+    def _find_named_prim_path(
+        stage: Any,
+        root_path: str,
+        name: str,
+        usd: Any,
+    ) -> str | None:
+        root_prim = stage.GetPrimAtPath(root_path)
+        if not root_prim.IsValid():
+            return None
+        for prim in usd.PrimRange(root_prim, usd.TraverseInstanceProxies()):
+            if prim.GetName() == name:
+                return str(prim.GetPath())
+        return None
 
     def _prepare_body_views(
         self,

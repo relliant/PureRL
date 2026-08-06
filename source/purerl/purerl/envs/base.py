@@ -79,7 +79,7 @@ class BaseVecEnv:
             self.backend.set_joint_position_targets(targets)
             self.backend.simulate(
                 render=(
-                    self.render_mode is not None
+                    (self.render_mode is not None or self.cfg.sensors.lidar.enabled)
                     and self._sim_step_counter % self.cfg.sim.render_interval == 0
                 )
             )
@@ -115,6 +115,11 @@ class BaseVecEnv:
         if self.render_mode != "rgb_array":
             return None
         return self.backend.render_rgb()
+
+    def get_lidar_point_cloud(self) -> Any:
+        """Return the latest head LiDAR point cloud without changing policy observations."""
+
+        return self.backend.get_lidar_point_cloud()
 
     def close(self) -> None:
         if not self.closed:

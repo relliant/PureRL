@@ -24,8 +24,35 @@ from purerl.rl import (
 
 def main() -> None:
     args = _parse_args()
+    spec = get_task_spec(args.task)
+    env_cfg = spec.make_env_cfg(args.env_config)
+    runner_cfg = spec.make_runner_cfg(args.runner_config)
+    seed = runner_cfg.seed if args.seed is None else args.seed
+    device = runner_cfg.device if args.device is None else args.device
+    env_cfg = env_cfg.replace(
+        seed=seed,
+        scene=env_cfg.scene.replace(
+            num_envs=env_cfg.scene.num_envs if args.num_envs is None else args.num_envs
+        ),
+        sim=env_cfg.sim.replace(device=device),
+    )
+    env_cfg = _apply_play_overrides(env_cfg, args)
+    runner_cfg = runner_cfg.replace(
+        seed=seed,
+        device=device,
+        load_run=runner_cfg.load_run if args.load_run is None else args.load_run,
+        load_checkpoint=(
+            runner_cfg.load_checkpoint if args.load_checkpoint is None else args.load_checkpoint
+        ),
+    )
+    env_cfg.validate()
+    runner_cfg.validate()
     launcher = IsaacSimLauncher(
-        AppLauncherCfg(headless=not args.show, enable_cameras=args.video)
+        AppLauncherCfg(
+            headless=not args.show,
+            enable_cameras=args.video or args.show or env_cfg.sensors.lidar.enabled,
+            raytracing_motion=env_cfg.sensors.lidar.enabled,
+        )
     )
     env = None
     video_writer = None
@@ -34,31 +61,6 @@ def main() -> None:
         import torch
         from rsl_rl.runners import OnPolicyRunner
 
-        spec = get_task_spec(args.task)
-        env_cfg = spec.make_env_cfg(args.env_config)
-        runner_cfg = spec.make_runner_cfg(args.runner_config)
-        seed = runner_cfg.seed if args.seed is None else args.seed
-        device = runner_cfg.device if args.device is None else args.device
-        env_cfg = env_cfg.replace(
-            seed=seed,
-            scene=env_cfg.scene.replace(
-                num_envs=env_cfg.scene.num_envs if args.num_envs is None else args.num_envs
-            ),
-            sim=env_cfg.sim.replace(device=device),
-        )
-        env_cfg = _apply_play_overrides(env_cfg, args)
-        runner_cfg = runner_cfg.replace(
-            seed=seed,
-            device=device,
-            load_run=runner_cfg.load_run if args.load_run is None else args.load_run,
-            load_checkpoint=(
-                runner_cfg.load_checkpoint
-                if args.load_checkpoint is None
-                else args.load_checkpoint
-            ),
-        )
-        env_cfg.validate()
-        runner_cfg.validate()
         checkpoint = _resolve_checkpoint(args, runner_cfg)
         mean_std = read_checkpoint_mean_noise_std(checkpoint)
         if mean_std is not None and mean_std > runner_cfg.max_checkpoint_noise_std:
@@ -124,9 +126,13 @@ def main() -> None:
             if args.log_interval and (step + 1) % args.log_interval == 0:
                 command = env.commands[0].detach().cpu().tolist()
                 position = env.state.root_position[0].detach().cpu().tolist()
+                lidar_details = ""
+                if env.cfg.sensors.lidar.enabled:
+                    lidar_details = f" lidar_points={len(env.get_lidar_point_cloud())}"
                 print(
                     f"PLAY_PROGRESS step={step + 1}/{args.steps} "
-                    f"command={_format_vector(command)} position={_format_vector(position)}",
+                    f"command={_format_vector(command)} position={_format_vector(position)}"
+                    f"{lidar_details}",
                     flush=True,
                 )
 
@@ -179,6 +185,10 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--terrain-patch", help="Generated terrain patch name for playback")
     parser.add_argument("--terrain-level", type=int, help="Generated terrain difficulty row")
+    lidar_group = parser.add_mutually_exclusive_group()
+    lidar_group.add_argument("--lidar", dest="lidar_enabled", action="store_true")
+    lidar_group.add_argument("--no-lidar", dest="lidar_enabled", action="store_false")
+    parser.set_defaults(lidar_enabled=None)
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--log-interval", type=int, default=250)
     parser.add_argument("--export-dir")
@@ -206,6 +216,12 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _apply_play_overrides(env_cfg, args: argparse.Namespace):
+    if args.lidar_enabled is not None:
+        env_cfg = env_cfg.replace(
+            sensors=env_cfg.sensors.replace(
+                lidar=env_cfg.sensors.lidar.replace(enabled=args.lidar_enabled)
+            )
+        )
     if args.command is not None:
         vx, vy, wz = args.command
         ranges = env_cfg.commands.ranges.replace(
@@ -254,6 +270,15 @@ def _print_play_start(env) -> None:
                 f"terrain_patch={env.cfg.terrain.selected_patch or 'mixed'}",
                 f"terrain_level={int(levels[0].item())}",
                 f"terrain_column={int(columns[0].item())}",
+            )
+        )
+    if env.cfg.sensors.lidar.enabled:
+        details.extend(
+            (
+                f"lidar_model={env.cfg.sensors.lidar.config_file_name}",
+                f"lidar_variant={env.cfg.sensors.lidar.variant}",
+                f"lidar_mount={env.backend.lidar_mount_body}",
+                f"lidar_prim={env.backend.lidar_prim_path}",
             )
         )
     print("PLAY_START " + " ".join(details), flush=True)

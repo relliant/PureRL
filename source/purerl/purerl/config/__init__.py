@@ -2,6 +2,8 @@
 
 from .env import (
     EnvCfg,
+    EnvironmentVisualCfg,
+    LidarCfg,
     load_env_cfg,
     make_flat_env_cfg,
     make_flat_play_env_cfg,
@@ -18,7 +20,9 @@ from .runner import (
 
 __all__ = [
     "EnvCfg",
+    "EnvironmentVisualCfg",
     "JOINT_NAMES",
+    "LidarCfg",
     "OnPolicyRunnerCfg",
     "RobotCfg",
     "load_env_cfg",

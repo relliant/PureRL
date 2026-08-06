@@ -18,7 +18,9 @@ from purerl.registry import get_task_spec
 
 def main() -> None:
     args = _parse_args()
-    launcher = IsaacSimLauncher(AppLauncherCfg(headless=True, enable_cameras=True))
+    launcher = IsaacSimLauncher(
+        AppLauncherCfg(headless=True, enable_cameras=True, raytracing_motion=True)
+    )
     env = None
     writer = None
     try:
@@ -50,15 +52,19 @@ def main() -> None:
                 raise RuntimeError(f"Invalid RGB frame: shape={frame.shape} dtype={frame.dtype}")
             nonblank_frames += int(float(frame.std()) > 1.0)
             writer.append_data(frame)
+        lidar_points = len(env.get_lidar_point_cloud()) if cfg.sensors.lidar.enabled else 0
         writer.close()
         writer = None
         if nonblank_frames == 0:
             raise RuntimeError("All rendered frames are blank")
         if not output.is_file() or output.stat().st_size == 0:
             raise RuntimeError(f"Video was not written: {output}")
+        if cfg.sensors.lidar.enabled and lidar_points == 0:
+            raise RuntimeError("Head RTX LiDAR did not return any points")
         print(
             f"VIDEO_OK frames={args.frames} nonblank={nonblank_frames} "
-            f"resolution={args.width}x{args.height} output={output}",
+            f"resolution={args.width}x{args.height} lidar_points={lidar_points} "
+            f"lidar_mount={env.backend.lidar_mount_body} output={output}",
             flush=True,
         )
     except BaseException as exc:

@@ -81,7 +81,7 @@ editable YAML presets under `source/purerl/purerl/config/presets`:
 | Rough play | `rough_play_env.yaml` | `rough_runner.yaml` |
 
 Each environment preset includes simulation, scene, robot, action,
-observation, sensor, command, randomization, terrain, and reward values. Each
+observation, sensor, visual, command, randomization, terrain, and reward values. Each
 runner preset includes policy, PPO, checkpoint, and logger values. Presets do
 not inherit from one another, so a file shows the complete configuration that
 will be loaded for that variant. Relative filesystem paths, including
@@ -107,6 +107,16 @@ are resolved in this order: the selected YAML preset, dataclass type conversion
 and validation, then explicit CLI overrides such as `--num-envs`, `--device`,
 or `--max-iterations`. The final resolved configs are written to the run's
 `params/env.yaml` and `params/agent.yaml` files.
+
+The Play presets enable one head-mounted RTX 3D LiDAR using the local
+`OS1_REV6_32ch10hz512res` profile. The imported robot merges fixed joints, so
+the backend mounts to `head` when that prim exists and otherwise mounts to
+`pelvis` with the configured head offset. LiDAR fields live under
+`sensors.lidar`; `visuals.sky_color`, `sky_intensity`, `ground_color`, and
+`terrain_color` control the simulation background and terrain appearance.
+Training presets keep LiDAR disabled to avoid creating an RTX render product
+for large vectorized runs. LiDAR points are intentionally not appended to the
+259-dimensional locomotion observation, preserving existing checkpoints.
 
 ## Training
 
@@ -135,7 +145,7 @@ exceeds available GPU memory.
 
 The default training presets are adapted from the XBot-L PPO configuration in
 [roboterax/humanoid-gym](https://github.com/roboterax/humanoid-gym): 24-second
-episodes, 60 policy steps per rollout, 3001 PPO iterations, a `1e-5` learning
+episodes, 60 policy steps per rollout, 10001 PPO iterations, a `1e-5` learning
 rate, two learning epochs, `gamma=0.994`, `lambda=0.9`, and a wider
 `[768, 256, 128]` critic. Compatible environment settings use a `0.25` joint
 target action scale, 8-second command resampling, and command ranges of
@@ -226,7 +236,9 @@ python scripts/rsl_rl/play.py \
 
 Available patch names are `flat`, `random_rough`, `slope_up`, `slope_down`,
 `stairs_up`, `stairs_down`, and `random_blocks`. Playback prints the resolved
-command, terrain patch/level/column, and periodic robot positions. Set
+command, terrain patch/level/column, LiDAR mount/profile, periodic robot
+positions, and the latest LiDAR point count. Use `--no-lidar` to disable the
+playback sensor or `--lidar` to enable it for a custom config. Set
 `--log-interval 0` to disable progress lines.
 
 Record 1000 policy steps, approximately 20 seconds at the default 50 Hz
