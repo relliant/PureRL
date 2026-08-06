@@ -48,19 +48,19 @@ class SceneCfg(ConfigMixin):
 @dataclass(frozen=True)
 class ActionCfg(ConfigMixin):
     dimension: int = ACTION_DIM
-    scale: float = 0.5
-    clip: float = 1.0
+    scale: float = 0.25
+    clip: float | None = None
     use_default_offset: bool = True
 
 
 @dataclass(frozen=True)
 class ObservationNoiseCfg(ConfigMixin):
-    base_linear_velocity: tuple[float, float] = (-0.1, 0.1)
-    base_angular_velocity: tuple[float, float] = (-0.2, 0.2)
-    projected_gravity: tuple[float, float] = (-0.05, 0.05)
-    relative_joint_positions: tuple[float, float] = (-0.01, 0.01)
-    joint_velocities: tuple[float, float] = (-1.5, 1.5)
-    terrain_height_scan: tuple[float, float] = (-0.1, 0.1)
+    base_linear_velocity: tuple[float, float] = (-0.03, 0.03)
+    base_angular_velocity: tuple[float, float] = (-0.06, 0.06)
+    projected_gravity: tuple[float, float] = (-0.018, 0.018)
+    relative_joint_positions: tuple[float, float] = (-0.03, 0.03)
+    joint_velocities: tuple[float, float] = (-0.3, 0.3)
+    terrain_height_scan: tuple[float, float] = (-0.06, 0.06)
 
 
 @dataclass(frozen=True)
@@ -92,15 +92,15 @@ class ViewerCfg(ConfigMixin):
 
 @dataclass(frozen=True)
 class VelocityRangesCfg(ConfigMixin):
-    lin_vel_x: tuple[float, float] = (-0.5, 1.2)
-    lin_vel_y: tuple[float, float] = (-0.4, 0.4)
-    ang_vel_z: tuple[float, float] = (-1.0, 1.0)
+    lin_vel_x: tuple[float, float] = (-0.3, 0.6)
+    lin_vel_y: tuple[float, float] = (-0.3, 0.3)
+    ang_vel_z: tuple[float, float] = (-0.3, 0.3)
     heading: tuple[float, float] = (-math.pi, math.pi)
 
 
 @dataclass(frozen=True)
 class CommandCfg(ConfigMixin):
-    resampling_time_range: tuple[float, float] = (4.0, 8.0)
+    resampling_time_range: tuple[float, float] = (8.0, 8.0)
     heading_command: bool = True
     heading_control_stiffness: float = 0.5
     heading_env_ratio: float = 1.0
@@ -110,10 +110,10 @@ class CommandCfg(ConfigMixin):
 
 @dataclass(frozen=True)
 class RandomizationCfg(ConfigMixin):
-    static_friction_range: tuple[float, float] = (0.6, 1.2)
-    dynamic_friction_range: tuple[float, float] = (0.5, 1.0)
+    static_friction_range: tuple[float, float] = (0.1, 2.0)
+    dynamic_friction_range: tuple[float, float] = (0.1, 2.0)
     friction_buckets: int = 64
-    pelvis_mass_delta: tuple[float, float] = (-3.0, 3.0)
+    pelvis_mass_delta: tuple[float, float] = (-5.0, 5.0)
     pelvis_com_x: tuple[float, float] = (-0.03, 0.03)
     pelvis_com_y: tuple[float, float] = (-0.03, 0.03)
     pelvis_com_z: tuple[float, float] = (-0.02, 0.02)
@@ -124,9 +124,9 @@ class RandomizationCfg(ConfigMixin):
     root_yaw: tuple[float, float] = (-math.pi, math.pi)
     external_force: tuple[float, float] = (-5.0, 5.0)
     external_torque: tuple[float, float] = (-5.0, 5.0)
-    push_interval_s: tuple[float, float] = (10.0, 15.0)
-    push_velocity_x: tuple[float, float] = (-0.5, 0.5)
-    push_velocity_y: tuple[float, float] = (-0.5, 0.5)
+    push_interval_s: tuple[float, float] = (4.0, 4.0)
+    push_velocity_x: tuple[float, float] = (-0.2, 0.2)
+    push_velocity_y: tuple[float, float] = (-0.2, 0.2)
     randomize_actuator_gains: bool = True
     apply_external_force: bool = True
     apply_periodic_push: bool = True
@@ -211,8 +211,10 @@ class TerrainCfg(ConfigMixin):
     horizontal_scale: float = 0.1
     vertical_scale: float = 0.005
     slope_threshold: float = 0.75
-    max_initial_level: int | None = 2
+    max_initial_level: int | None = 5
     curriculum: bool = True
+    selected_patch: str | None = None
+    selected_level: int | None = None
     patches: tuple[TerrainPatchCfg, ...] = ROUGH_TERRAIN_PATCHES
 
 
@@ -220,8 +222,8 @@ class TerrainCfg(ConfigMixin):
 class EnvCfg(ConfigMixin):
     task_kind: str
     play: bool
-    seed: int = 42
-    episode_length_s: float = 20.0
+    seed: int = 5
+    episode_length_s: float = 24.0
     sim: SimCfg = field(default_factory=SimCfg)
     scene: SceneCfg = field(default_factory=SceneCfg)
     robot: RobotCfg = field(default_factory=make_tienkung_robot_cfg)
@@ -265,6 +267,8 @@ class EnvCfg(ConfigMixin):
             raise ValueError("Terrain rows and columns must be positive")
         if self.actions.dimension != len(self.robot.joint_names):
             raise ValueError("Action dimension must match the robot joint count")
+        if self.actions.clip is not None and self.actions.clip <= 0.0:
+            raise ValueError("Action clip must be positive when enabled")
         if self.sensors.contact_history_length <= 0:
             raise ValueError("sensors.contact_history_length must be positive")
         if self.observations.dimension != OBSERVATION_DIM:
@@ -302,6 +306,20 @@ class EnvCfg(ConfigMixin):
             total_proportion = sum(patch.proportion for patch in self.terrain.patches)
             if abs(total_proportion - 1.0) > 1.0e-6:
                 raise ValueError("Terrain patch proportions must sum to one")
+            patch_names = {patch.name for patch in self.terrain.patches}
+            if (
+                self.terrain.selected_patch is not None
+                and self.terrain.selected_patch not in patch_names
+            ):
+                raise ValueError(
+                    f"Selected terrain patch does not exist: {self.terrain.selected_patch}"
+                )
+            if self.terrain.selected_level is not None and not (
+                0 <= self.terrain.selected_level < self.terrain.num_rows
+            ):
+                raise ValueError("Selected terrain level is outside the configured rows")
+        elif self.terrain.selected_patch is not None or self.terrain.selected_level is not None:
+            raise ValueError("Selected terrain patch/level requires generated terrain")
         if len(self.reward_weights()) != len(self.rewards):
             raise ValueError("Reward term names must be unique")
         randomization_ranges = (

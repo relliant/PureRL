@@ -14,7 +14,12 @@ from purerl.app import AppLauncherCfg, IsaacSimLauncher
 from purerl.contracts import OBSERVATION_DIM, TASK_IDS
 from purerl.envs import TienKungLocomotionEnv
 from purerl.registry import get_task_spec
-from purerl.rl import RslRlVecEnvWrapper, export_feedforward_policy, find_checkpoint
+from purerl.rl import (
+    RslRlVecEnvWrapper,
+    export_feedforward_policy,
+    find_checkpoint,
+    read_checkpoint_mean_noise_std,
+)
 
 
 def main() -> None:
@@ -41,6 +46,7 @@ def main() -> None:
             ),
             sim=env_cfg.sim.replace(device=device),
         )
+        env_cfg = _apply_play_overrides(env_cfg, args)
         runner_cfg = runner_cfg.replace(
             seed=seed,
             device=device,
@@ -54,11 +60,19 @@ def main() -> None:
         env_cfg.validate()
         runner_cfg.validate()
         checkpoint = _resolve_checkpoint(args, runner_cfg)
+        mean_std = read_checkpoint_mean_noise_std(checkpoint)
+        if mean_std is not None and mean_std > runner_cfg.max_checkpoint_noise_std:
+            print(
+                f"PLAY_WARNING checkpoint mean action noise std is {mean_std:.2f}; "
+                "the policy was trained with an unhealthy exploration distribution",
+                file=sys.stderr,
+                flush=True,
+            )
 
         env = TienKungLocomotionEnv(
             task_id=args.task,
             cfg=env_cfg,
-            render_mode="rgb_array" if args.video else None,
+            render_mode="rgb_array" if args.video else "human" if args.show else None,
         )
         wrapped = RslRlVecEnvWrapper(env, clip_actions=runner_cfg.clip_actions)
         runner = OnPolicyRunner(wrapped, runner_cfg.to_dict(), log_dir=None, device=device)
@@ -93,6 +107,7 @@ def main() -> None:
             print("Exported " + ", ".join(f"{name}={path}" for name, path in exported.items()))
 
         observations = wrapped.get_observations()
+        _print_play_start(env)
         video_length = args.steps if args.video_length is None else args.video_length
         for step in range(args.steps):
             start = time.perf_counter()
@@ -106,6 +121,14 @@ def main() -> None:
                 delay = env.step_dt - (time.perf_counter() - start)
                 if delay > 0:
                     time.sleep(delay)
+            if args.log_interval and (step + 1) % args.log_interval == 0:
+                command = env.commands[0].detach().cpu().tolist()
+                position = env.state.root_position[0].detach().cpu().tolist()
+                print(
+                    f"PLAY_PROGRESS step={step + 1}/{args.steps} "
+                    f"command={_format_vector(command)} position={_format_vector(position)}",
+                    flush=True,
+                )
 
         if video_writer is not None:
             video_writer.close()
@@ -147,7 +170,17 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int)
     parser.add_argument("--device")
     parser.add_argument("--seed", type=int)
+    parser.add_argument(
+        "--command",
+        type=float,
+        nargs=3,
+        metavar=("VX", "VY", "WZ"),
+        help="Use a fixed body-frame velocity command",
+    )
+    parser.add_argument("--terrain-patch", help="Generated terrain patch name for playback")
+    parser.add_argument("--terrain-level", type=int, help="Generated terrain difficulty row")
     parser.add_argument("--steps", type=int, default=1000)
+    parser.add_argument("--log-interval", type=int, default=250)
     parser.add_argument("--export-dir")
     parser.add_argument("--no-export", action="store_true")
     parser.add_argument("--real-time", action="store_true")
@@ -159,6 +192,10 @@ def _parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.steps <= 0:
         parser.error("--steps must be positive")
+    if args.log_interval < 0:
+        parser.error("--log-interval cannot be negative")
+    if args.terrain_level is not None and args.terrain_level < 0:
+        parser.error("--terrain-level cannot be negative")
     if args.video_length is not None and not 0 < args.video_length <= args.steps:
         parser.error("--video-length must be between 1 and --steps")
     if args.video_fps is not None and args.video_fps <= 0:
@@ -166,6 +203,64 @@ def _parse_args() -> argparse.Namespace:
     if args.video_path and not args.video:
         parser.error("--video-path requires --video")
     return args
+
+
+def _apply_play_overrides(env_cfg, args: argparse.Namespace):
+    if args.command is not None:
+        vx, vy, wz = args.command
+        ranges = env_cfg.commands.ranges.replace(
+            lin_vel_x=(vx, vx),
+            lin_vel_y=(vy, vy),
+            ang_vel_z=(wz, wz),
+            heading=(0.0, 0.0),
+        )
+        env_cfg = env_cfg.replace(
+            commands=env_cfg.commands.replace(
+                resampling_time_range=(env_cfg.episode_length_s + env_cfg.sim.step_dt,) * 2,
+                heading_command=False,
+                heading_env_ratio=0.0,
+                standing_env_ratio=0.0,
+                ranges=ranges,
+            )
+        )
+    if args.terrain_patch is not None or args.terrain_level is not None:
+        if env_cfg.terrain.terrain_type != "generator":
+            raise ValueError("Terrain patch/level overrides require a rough-terrain task")
+        env_cfg = env_cfg.replace(
+            terrain=env_cfg.terrain.replace(
+                selected_patch=(
+                    env_cfg.terrain.selected_patch
+                    if args.terrain_patch is None
+                    else args.terrain_patch
+                ),
+                selected_level=(
+                    env_cfg.terrain.selected_level
+                    if args.terrain_level is None
+                    else args.terrain_level
+                ),
+            )
+        )
+    return env_cfg
+
+
+def _print_play_start(env) -> None:
+    command = env.commands[0].detach().cpu().tolist()
+    details = [f"command={_format_vector(command)}"]
+    levels = getattr(env.backend, "terrain_levels", None)
+    columns = getattr(env.backend, "terrain_columns", None)
+    if levels is not None and columns is not None:
+        details.extend(
+            (
+                f"terrain_patch={env.cfg.terrain.selected_patch or 'mixed'}",
+                f"terrain_level={int(levels[0].item())}",
+                f"terrain_column={int(columns[0].item())}",
+            )
+        )
+    print("PLAY_START " + " ".join(details), flush=True)
+
+
+def _format_vector(values) -> str:
+    return "[" + ",".join(f"{float(value):.3f}" for value in values) + "]"
 
 
 def _resolve_checkpoint(args: argparse.Namespace, runner_cfg) -> Path:

@@ -19,7 +19,7 @@ class ActorCriticCfg(ConfigMixin):
     actor_obs_normalization: bool = True
     critic_obs_normalization: bool = True
     actor_hidden_dims: tuple[int, ...] = (512, 256, 128)
-    critic_hidden_dims: tuple[int, ...] = (512, 256, 128)
+    critic_hidden_dims: tuple[int, ...] = (768, 256, 128)
     activation: str = "elu"
 
 
@@ -29,13 +29,13 @@ class PpoAlgorithmCfg(ConfigMixin):
     value_loss_coef: float = 1.0
     use_clipped_value_loss: bool = True
     clip_param: float = 0.2
-    entropy_coef: float = 0.01
-    num_learning_epochs: int = 5
+    entropy_coef: float = 0.001
+    num_learning_epochs: int = 2
     num_mini_batches: int = 4
-    learning_rate: float = 1.0e-3
+    learning_rate: float = 1.0e-5
     schedule: str = "adaptive"
-    gamma: float = 0.99
-    lam: float = 0.95
+    gamma: float = 0.994
+    lam: float = 0.9
     desired_kl: float = 0.01
     max_grad_norm: float = 1.0
 
@@ -43,10 +43,10 @@ class PpoAlgorithmCfg(ConfigMixin):
 @dataclass(frozen=True)
 class OnPolicyRunnerCfg(ConfigMixin):
     class_name: str = "OnPolicyRunner"
-    seed: int = 42
+    seed: int = 5
     device: str = "cuda:0"
-    num_steps_per_env: int = 24
-    max_iterations: int = 5000
+    num_steps_per_env: int = 60
+    max_iterations: int = 3001
     save_interval: int = 100
     experiment_name: str = "tienkung_rough"
     run_name: str = ""
@@ -54,6 +54,9 @@ class OnPolicyRunnerCfg(ConfigMixin):
         default_factory=lambda: {"policy": ("policy",), "critic": ("policy",)}
     )
     clip_actions: float | None = None
+    min_action_noise_std: float = 0.05
+    max_action_noise_std: float = 3.0
+    max_checkpoint_noise_std: float = 3.0
     logger: str = "tensorboard"
     wandb_project: str = "purerl"
     wandb_entity: str | None = None
@@ -73,6 +76,10 @@ class OnPolicyRunnerCfg(ConfigMixin):
             raise ValueError("Runner step and iteration counts must be positive")
         if self.class_name != "OnPolicyRunner":
             raise ValueError(f"Unsupported runner: {self.class_name}")
+        if self.max_checkpoint_noise_std <= 0.0:
+            raise ValueError("max_checkpoint_noise_std must be positive")
+        if not 0.0 < self.min_action_noise_std <= self.max_action_noise_std:
+            raise ValueError("Action noise bounds must satisfy 0 < minimum <= maximum")
         if "policy" not in self.obs_groups or "critic" not in self.obs_groups:
             raise ValueError("RSL-RL requires policy and critic observation groups")
         if self.logger not in {"tensorboard", "wandb", "neptune"}:

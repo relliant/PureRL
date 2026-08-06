@@ -1,16 +1,16 @@
 {
-  "baseline_kind": "isaaclab_simulator_reference",
+  "baseline_kind": "purerl_humanoid_gym_inspired",
   "simulator_reference_available": true,
   "simulator_reference_fixture": "isaaclab_legacy_reference.npz",
   "action": {
     "dimension": 20,
-    "scale": 0.5
+    "scale": 0.25
   },
   "simulation": {
     "physics_dt": 0.005,
     "decimation": 4,
     "step_dt": 0.02,
-    "episode_length_s": 20.0
+    "episode_length_s": 24.0
   },
   "observation": {
     "dimension": 259,

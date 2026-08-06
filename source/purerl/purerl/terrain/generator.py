@@ -87,8 +87,28 @@ def assign_terrain_tiles(
     maximum_level = cfg.num_rows - 1
     if cfg.max_initial_level is not None:
         maximum_level = min(maximum_level, cfg.max_initial_level)
-    levels = rng.integers(0, maximum_level + 1, size=num_envs, dtype=np.int64)
-    columns = np.arange(num_envs, dtype=np.int64) % cfg.num_cols
+    if cfg.selected_level is None:
+        levels = rng.integers(0, maximum_level + 1, size=num_envs, dtype=np.int64)
+    else:
+        levels = np.full(num_envs, cfg.selected_level, dtype=np.int64)
+
+    if cfg.selected_patch is None:
+        columns = np.arange(num_envs, dtype=np.int64) % cfg.num_cols
+    else:
+        patch_columns = np.asarray(
+            [
+                column
+                for column, tile in enumerate(tiles[: cfg.num_cols])
+                if tile.patch_name == cfg.selected_patch
+            ],
+            dtype=np.int64,
+        )
+        if patch_columns.size == 0:
+            raise ValueError(
+                f"Terrain patch {cfg.selected_patch!r} was not allocated a grid column; "
+                "increase terrain.num_cols"
+            )
+        columns = np.resize(patch_columns, num_envs)
     tile_indices = levels * cfg.num_cols + columns
     origins = np.stack([tiles[index].origin for index in tile_indices]).astype(np.float32)
     return TerrainAssignment(levels, columns, tile_indices, origins)

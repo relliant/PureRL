@@ -54,6 +54,12 @@ class FakeTienKungBackend:
     def simulate(self, *, render):
         del render
 
+    def configure_viewer(self):
+        pass
+
+    def render_rgb(self):
+        return torch.zeros((4, 4, 3), dtype=torch.uint8).numpy()
+
     def refresh(self):
         pass
 
@@ -150,8 +156,8 @@ def test_training_observation_corruption_is_seeded_by_reset():
 
     assert torch.equal(first["policy"], second["policy"])
     assert not torch.allclose(first["policy"][:, 72:], torch.full((2, 187), 0.39))
-    assert (first["policy"][:, 72:] >= 0.29).all()
-    assert (first["policy"][:, 72:] <= 0.49).all()
+    assert (first["policy"][:, 72:] >= 0.33).all()
+    assert (first["policy"][:, 72:] <= 0.45).all()
 
 
 def test_flat_environment_runs_manager_lifecycle():

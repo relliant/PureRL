@@ -55,6 +55,20 @@ def test_terrain_assignment_is_seeded_balanced_and_respects_initial_level():
     assert np.allclose(first.origins, np.stack([tiles[index].origin for index in first.tile_indices]))
 
 
+def test_play_assignment_selects_requested_patch_and_level():
+    cfg_level = make_rough_env_cfg().terrain.num_rows - 1
+    cfg = make_rough_env_cfg().terrain.replace(
+        selected_patch="random_blocks",
+        selected_level=cfg_level,
+    )
+    tiles = generate_terrain_tiles(cfg, seed=42)
+
+    assignment = assign_terrain_tiles(tiles, cfg, num_envs=1, seed=42)
+
+    assert assignment.levels.tolist() == [cfg_level]
+    assert tiles[assignment.tile_indices[0]].patch_name == "random_blocks"
+
+
 def test_combined_terrain_mesh_offsets_tile_face_indices():
     cfg = make_rough_env_cfg().terrain
     tiles = generate_terrain_tiles(cfg, seed=42)[:2]

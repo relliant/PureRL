@@ -1,7 +1,7 @@
 task_kind: flat
 play: true
-seed: 42
-episode_length_s: 20.0
+seed: 5
+episode_length_s: 24.0
 sim:
   dt: 0.005
   decimation: 4
@@ -17,7 +17,7 @@ sim:
   gpu_max_num_partitions: 8
   gpu_collision_stack_size: 67108864
 scene:
-  num_envs: 16
+  num_envs: 1
   env_spacing: 2.5
 robot:
   urdf_path: ../../assets/robot_description/tienkung/tienkung2_lite.urdf
@@ -57,8 +57,8 @@ robot:
   solver_velocity_iterations: 4
 actions:
   dimension: 20
-  scale: 0.5
-  clip: 1.0
+  scale: 0.25
+  clip: null
   use_default_offset: true
 observations:
   dimension: 259
@@ -85,16 +85,16 @@ viewer:
   camera_prim_path: /OmniverseKit_Persp
   resolution: [1280, 720]
 commands:
-  resampling_time_range: [4.0, 8.0]
-  heading_command: true
+  resampling_time_range: [1000.0, 1000.0]
+  heading_command: false
   heading_control_stiffness: 0.5
-  heading_env_ratio: 1.0
-  standing_env_ratio: 0.1
+  heading_env_ratio: 0.0
+  standing_env_ratio: 0.0
   ranges:
-    lin_vel_x: [-0.5, 1.2]
-    lin_vel_y: [-0.4, 0.4]
-    ang_vel_z: [-1.0, 1.0]
-    heading: [-3.141592653589793, 3.141592653589793]
+    lin_vel_x: [0.5, 0.5]
+    lin_vel_y: [0.0, 0.0]
+    ang_vel_z: [0.0, 0.0]
+    heading: [0.0, 0.0]
 randomization:
   static_friction_range: [0.6, 1.2]
   dynamic_friction_range: [0.5, 1.0]
@@ -127,6 +127,8 @@ terrain:
   slope_threshold: 0.75
   max_initial_level: null
   curriculum: false
+  selected_patch: null
+  selected_level: null
   patches: []
 rewards:
   - {name: termination_penalty, weight: -200.0}

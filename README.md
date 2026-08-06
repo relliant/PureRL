@@ -126,12 +126,27 @@ python scripts/rsl_rl/train.py \
 
 python scripts/rsl_rl/train.py \
   --task PureRL-Velocity-Rough-TienKung-v0 --num-envs 4096 \
-  --pretrained-checkpoint /absolute/path/to/model_2499.pt
+  --pretrained-checkpoint /absolute/path/to/model_3000.pt
 ```
 
 Checkpoints are written below `logs/rsl_rl/tienkung_flat` and
 `logs/rsl_rl/tienkung_rough`. Start with 2048 environments if the default 4096
 exceeds available GPU memory.
+
+The default training presets are adapted from the XBot-L PPO configuration in
+[roboterax/humanoid-gym](https://github.com/roboterax/humanoid-gym): 24-second
+episodes, 60 policy steps per rollout, 3001 PPO iterations, a `1e-5` learning
+rate, two learning epochs, `gamma=0.994`, `lambda=0.9`, and a wider
+`[768, 256, 128]` critic. Compatible environment settings use a `0.25` joint
+target action scale, 8-second command resampling, and command ranges of
+`x=[-0.3, 0.6]`, `y=[-0.3, 0.3]`, and `yaw=[-0.3, 0.3]`. TienKung-specific PD
+gains, 20-action observations, height scanning, reward functions and weights,
+termination behavior, and the policy-noise guard remain local because the
+XBot-L values are not transferable as configuration constants.
+
+The action scale and PPO hyperparameters differ from earlier PureRL presets.
+Start a new Flat run after this change; do not resume or transfer a checkpoint
+trained with the old `0.5` action scale.
 
 Resume from the latest matching checkpoint in a run, or pass explicit run and
 checkpoint paths:
@@ -165,27 +180,83 @@ and offline W&B logging together with:
 python scripts/tools/check_rsl_workflow.py --wandb-offline
 ```
 
+The policy exploration standard deviation is constrained by
+`min_action_noise_std` and `max_action_noise_std` in the runner YAML. Loading a
+checkpoint whose mean standard deviation exceeds `max_checkpoint_noise_std`
+is rejected by default. `--allow-unsafe-checkpoint` exists for diagnostics,
+but an unhealthy checkpoint should not be used to continue or transfer
+training. Runs produced before the unclipped-action fix must be retrained from
+scratch; in particular, do not use a checkpoint whose W&B
+`Policy/mean_noise_std` has grown beyond the configured limit.
+
 ## Evaluation And Export
+
+Use the play task that matches the checkpoint's training terrain. For example,
+open an interactive Isaac Sim window for a rough-terrain policy and run it at
+real-time speed with one robot:
 
 ```bash
 python scripts/rsl_rl/play.py \
   --task PureRL-Velocity-Rough-TienKung-Play-v0 \
-  --num-envs 16 --checkpoint /absolute/path/to/model.pt
+  --checkpoint /absolute/path/to/healthy_model.pt \
+  --num-envs 1 \
+  --steps 1000 \
+  --command 0.5 0.0 0.0 \
+  --terrain-patch random_rough \
+  --terrain-level 4 \
+  --show \
+  --real-time \
+  --no-export
+```
 
+`--show` uses the interactive `human` render mode, submits viewport frames,
+and aims the camera relative to the selected environment origin. Rough Play
+defaults to one robot, a fixed `[0.5, 0.0, 0.0]` velocity command, and the
+highest-level `random_rough` tile. Select another generated patch explicitly:
+
+```bash
 python scripts/rsl_rl/play.py \
   --task PureRL-Velocity-Rough-TienKung-Play-v0 \
-  --checkpoint /absolute/path/to/model.pt \
-  --video --video-length 500 --video-path videos/rough.mp4
+  --checkpoint /absolute/path/to/healthy_model.pt \
+  --terrain-patch stairs_up \
+  --terrain-level 4 \
+  --command 0.5 0.0 0.0 \
+  --show --real-time --no-export
+```
+
+Available patch names are `flat`, `random_rough`, `slope_up`, `slope_down`,
+`stairs_up`, `stairs_down`, and `random_blocks`. Playback prints the resolved
+command, terrain patch/level/column, and periodic robot positions. Set
+`--log-interval 0` to disable progress lines.
+
+Record 1000 policy steps, approximately 20 seconds at the default 50 Hz
+policy frequency, without opening the interactive window:
+
+```bash
+python scripts/rsl_rl/play.py \
+  --task PureRL-Velocity-Rough-TienKung-Play-v0 \
+  --checkpoint /absolute/path/to/healthy_model.pt \
+  --num-envs 1 \
+  --steps 1000 \
+  --video \
+  --video-length 1000 \
+  --video-fps 50 \
+  --video-path videos/rough_policy.mp4 \
+  --no-export
 ```
 
 The play command exports `policy.pt` and `policy.onnx` into an `exported`
-directory next to the checkpoint. Use `--no-export` to run inference only.
+directory next to the checkpoint unless `--no-export` is set. Pass
+`--command VX VY WZ` for a different fixed command, or provide a complete
+custom environment YAML through `--env-config` for randomized command tests.
 
 ## Runtime Contract
 
 - Physics frequency: 200 Hz (`dt=0.005`).
 - Policy frequency: 50 Hz (`decimation=4`).
-- Action: 20 position residuals with a `0.5 rad` scale.
+- Action: 20 unclipped position residuals with a `0.25 rad` scale. Exploration
+  noise is bounded separately in the runner configuration so PPO log
+  probabilities and executed actions remain consistent.
 - Velocity commands use a sampled world-heading target, proportional yaw
   control with gain `0.5`, and a 10% standing-environment ratio.
 - Contact history update: every physics step.

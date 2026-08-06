@@ -64,6 +64,7 @@ class IsaacSimBackend:
         self._contact_view: Any = None
         self._rgb_annotator: Any = None
         self._render_product: Any = None
+        self._viewer_configured = False
         self._joint_indices: Any = None
         self._body_view_indices: Any = None
         self._num_bodies = 0
@@ -319,19 +320,28 @@ class IsaacSimBackend:
         self._require_initialized()
         self._world.step(render=render)
 
+    def configure_viewer(self) -> None:
+        """Aim the configured viewport relative to the first environment origin."""
+
+        self._require_initialized()
+        from isaacsim.core.utils.viewports import set_camera_view
+
+        origin = self.env_origins[0].detach().cpu().tolist()
+        eye = tuple(origin[index] + self._cfg.viewer.eye[index] for index in range(3))
+        look_at = tuple(
+            origin[index] + self._cfg.viewer.look_at[index] for index in range(3)
+        )
+        set_camera_view(eye, look_at, self._cfg.viewer.camera_prim_path)
+        self._viewer_configured = True
+
     def render_rgb(self) -> Any:
         """Render the configured viewport camera and return an ``H x W x 3`` uint8 array."""
 
         self._require_initialized()
+        if not self._viewer_configured:
+            self.configure_viewer()
         if self._rgb_annotator is None:
             import omni.replicator.core as rep
-            from isaacsim.core.utils.viewports import set_camera_view
-
-            set_camera_view(
-                self._cfg.viewer.eye,
-                self._cfg.viewer.look_at,
-                self._cfg.viewer.camera_prim_path,
-            )
             self._render_product = rep.create.render_product(
                 self._cfg.viewer.camera_prim_path,
                 self._cfg.viewer.resolution,

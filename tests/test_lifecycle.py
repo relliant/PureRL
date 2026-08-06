@@ -35,8 +35,11 @@ class FakeBackend:
         self.log.append("target")
 
     def simulate(self, *, render):
-        self.log.append("simulate")
+        self.log.append(("simulate", render))
         self.state.value += 1.0
+
+    def configure_viewer(self):
+        self.log.append("configure_viewer")
 
     def render_rgb(self):
         self.log.append("render_rgb")
@@ -112,7 +115,7 @@ def test_step_order_and_auto_reset_are_explicit():
 
     observations, rewards, terminated, truncated, info = env.step(np.zeros((2, 20)))
 
-    assert log[:8] == ["target", "simulate"] * 4
+    assert log[:8] == ["target", ("simulate", False)] * 4
     assert log[8:] == ["refresh", "reset", "reset_event", "refresh", "interval"]
     assert terminated.tolist() == [True, True]
     assert truncated.tolist() == [False, False]
@@ -149,3 +152,20 @@ def test_rgb_array_render_delegates_to_backend():
     assert frame.dtype == np.uint8
     assert env.metadata["render_fps"] == 50
     assert log[-1] == "render_rgb"
+
+
+def test_human_render_mode_configures_viewer_and_submits_render_steps():
+    env, log = make_env(render_mode="human")
+    assert "configure_viewer" in log
+    log.clear()
+
+    env.step(np.zeros((2, 20)))
+
+    simulate_calls = [entry for entry in log if isinstance(entry, tuple)]
+    assert simulate_calls == [
+        ("simulate", False),
+        ("simulate", False),
+        ("simulate", False),
+        ("simulate", True),
+    ]
+    assert env.render() is None

@@ -13,7 +13,7 @@ from purerl.sim.backend import SimulationBackend
 class BaseVecEnv:
     """Coordinate batched simulation and MDP managers in a fixed order."""
 
-    metadata = {"render_modes": [None, "rgb_array"]}
+    metadata = {"render_modes": [None, "human", "rgb_array"]}
 
     def __init__(
         self,
@@ -52,6 +52,8 @@ class BaseVecEnv:
             raise ValueError(
                 f"Backend initialized {backend.num_envs} environments, expected {self.num_envs}"
             )
+        if render_mode is not None:
+            backend.configure_viewer()
         self.episode_length_buf = backend.zeros((self.num_envs,), dtype="long")
         self.event_manager.run("startup", self)
         self._reset_idx(backend.all_env_ids)
@@ -110,7 +112,7 @@ class BaseVecEnv:
         return {"policy": self.observation_manager.compute(self)}
 
     def render(self) -> Any | None:
-        if self.render_mode is None:
+        if self.render_mode != "rgb_array":
             return None
         return self.backend.render_rgb()
 

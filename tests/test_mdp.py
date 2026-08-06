@@ -40,6 +40,15 @@ def test_joint_position_action_clips_scales_and_tracks_history():
     assert np.allclose(manager.previous_action[1], 0.0)
 
 
+def test_joint_position_action_is_unclipped_by_default():
+    defaults = np.broadcast_to(np.asarray(DEFAULT_JOINT_POSITIONS), (1, ACTION_DIM)).copy()
+    manager = JointPositionActionManager(defaults, scale=0.5)
+
+    target = manager.process(np.full_like(defaults, 2.0))
+
+    assert np.allclose(target, defaults + 1.0)
+
+
 def test_velocity_command_heading_controller_wraps_clips_and_stands():
     cfg = CommandCfg(
         resampling_time_range=(2.0, 2.0),

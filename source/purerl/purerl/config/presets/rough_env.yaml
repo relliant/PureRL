@@ -1,7 +1,7 @@
 task_kind: rough
 play: false
-seed: 42
-episode_length_s: 20.0
+seed: 5
+episode_length_s: 24.0
 sim:
   dt: 0.005
   decimation: 4
@@ -57,20 +57,20 @@ robot:
   solver_velocity_iterations: 4
 actions:
   dimension: 20
-  scale: 0.5
-  clip: 1.0
+  scale: 0.25
+  clip: null
   use_default_offset: true
 observations:
   dimension: 259
   height_scan_points: 187
   enable_corruption: true
   noise:
-    base_linear_velocity: [-0.1, 0.1]
-    base_angular_velocity: [-0.2, 0.2]
-    projected_gravity: [-0.05, 0.05]
-    relative_joint_positions: [-0.01, 0.01]
-    joint_velocities: [-1.5, 1.5]
-    terrain_height_scan: [-0.1, 0.1]
+    base_linear_velocity: [-0.03, 0.03]
+    base_angular_velocity: [-0.06, 0.06]
+    projected_gravity: [-0.018, 0.018]
+    relative_joint_positions: [-0.03, 0.03]
+    joint_velocities: [-0.3, 0.3]
+    terrain_height_scan: [-0.06, 0.06]
   height_scan_clip: [-1.0, 1.0]
 sensors:
   contact_update_period: 0.005
@@ -85,21 +85,21 @@ viewer:
   camera_prim_path: /OmniverseKit_Persp
   resolution: [1280, 720]
 commands:
-  resampling_time_range: [4.0, 8.0]
+  resampling_time_range: [8.0, 8.0]
   heading_command: true
   heading_control_stiffness: 0.5
   heading_env_ratio: 1.0
   standing_env_ratio: 0.1
   ranges:
-    lin_vel_x: [-0.5, 1.2]
-    lin_vel_y: [-0.4, 0.4]
-    ang_vel_z: [-1.0, 1.0]
+    lin_vel_x: [-0.3, 0.6]
+    lin_vel_y: [-0.3, 0.3]
+    ang_vel_z: [-0.3, 0.3]
     heading: [-3.141592653589793, 3.141592653589793]
 randomization:
-  static_friction_range: [0.6, 1.2]
-  dynamic_friction_range: [0.5, 1.0]
+  static_friction_range: [0.1, 2.0]
+  dynamic_friction_range: [0.1, 2.0]
   friction_buckets: 64
-  pelvis_mass_delta: [-3.0, 3.0]
+  pelvis_mass_delta: [-5.0, 5.0]
   pelvis_com_x: [-0.03, 0.03]
   pelvis_com_y: [-0.03, 0.03]
   pelvis_com_z: [-0.02, 0.02]
@@ -110,9 +110,9 @@ randomization:
   root_yaw: [-3.141592653589793, 3.141592653589793]
   external_force: [-5.0, 5.0]
   external_torque: [-5.0, 5.0]
-  push_interval_s: [10.0, 15.0]
-  push_velocity_x: [-0.5, 0.5]
-  push_velocity_y: [-0.5, 0.5]
+  push_interval_s: [4.0, 4.0]
+  push_velocity_x: [-0.2, 0.2]
+  push_velocity_y: [-0.2, 0.2]
   randomize_actuator_gains: true
   apply_external_force: true
   apply_periodic_push: true
@@ -125,8 +125,10 @@ terrain:
   horizontal_scale: 0.1
   vertical_scale: 0.005
   slope_threshold: 0.75
-  max_initial_level: 2
+  max_initial_level: 5
   curriculum: true
+  selected_patch: null
+  selected_level: null
   patches:
     - name: flat
       proportion: 0.1

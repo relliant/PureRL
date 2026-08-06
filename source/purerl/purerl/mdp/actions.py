@@ -12,7 +12,13 @@ from ._array import clip
 class JointPositionActionManager:
     """Convert normalized policy actions into articulation position targets."""
 
-    def __init__(self, default_joint_positions: Any, *, scale: float = 0.5, action_clip: float = 1.0):
+    def __init__(
+        self,
+        default_joint_positions: Any,
+        *,
+        scale: float = 0.5,
+        action_clip: float | None = None,
+    ):
         if default_joint_positions.shape[-1] != ACTION_DIM:
             raise ValueError(f"Expected {ACTION_DIM} default joint positions")
         self.default_joint_positions = default_joint_positions
@@ -27,7 +33,11 @@ class JointPositionActionManager:
                 f"Action shape {action.shape} does not match expected shape {self.default_joint_positions.shape}"
             )
         self.previous_action = self.action
-        self.action = clip(action, -self.action_clip, self.action_clip)
+        self.action = (
+            action
+            if self.action_clip is None
+            else clip(action, -self.action_clip, self.action_clip)
+        )
         return self.default_joint_positions + self.scale * self.action
 
     def reset(self, env_ids: Any) -> None:

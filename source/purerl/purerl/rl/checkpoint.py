@@ -42,6 +42,42 @@ def find_checkpoint(
     return checkpoints[-1]
 
 
+def read_checkpoint_mean_noise_std(checkpoint: str | Path) -> float | None:
+    """Read the mean action-noise standard deviation from an RSL-RL checkpoint."""
+
+    import torch
+
+    path = Path(checkpoint).expanduser().resolve()
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    state = payload.get("model_state_dict", {})
+    if "std" in state:
+        std = state["std"].detach().float()
+    elif "log_std" in state:
+        std = state["log_std"].detach().float().exp()
+    else:
+        return None
+    if not torch.isfinite(std).all() or (std <= 0.0).any():
+        raise ValueError(f"Checkpoint contains invalid action noise: {path}")
+    return float(std.mean())
+
+
+def validate_checkpoint_noise_std(
+    checkpoint: str | Path, *, maximum: float
+) -> float | None:
+    """Reject checkpoints whose exploration distribution is already degenerate."""
+
+    if maximum <= 0.0:
+        raise ValueError("maximum checkpoint noise must be positive")
+    mean_std = read_checkpoint_mean_noise_std(checkpoint)
+    if mean_std is not None and mean_std > maximum:
+        path = Path(checkpoint).expanduser().resolve()
+        raise ValueError(
+            f"Checkpoint mean action noise std is {mean_std:.2f}, above the safe limit "
+            f"{maximum:.2f}: {path}. Start from scratch or explicitly allow the unsafe checkpoint."
+        )
+    return mean_std
+
+
 def _natural_key(value: str) -> tuple[tuple[int, int | str], ...]:
     return tuple(
         (0, int(part)) if part.isdigit() else (1, part)

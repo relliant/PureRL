@@ -14,7 +14,13 @@ from purerl.app import AppLauncherCfg, IsaacSimLauncher
 from purerl.contracts import TASK_IDS
 from purerl.envs import TienKungLocomotionEnv
 from purerl.registry import get_task_spec
-from purerl.rl import RslRlVecEnvWrapper, find_checkpoint, route_wandb_to_carb
+from purerl.rl import (
+    RslRlVecEnvWrapper,
+    find_checkpoint,
+    install_policy_noise_bounds,
+    route_wandb_to_carb,
+    validate_checkpoint_noise_std,
+)
 
 
 def main() -> None:
@@ -100,6 +106,12 @@ def main() -> None:
 
         log_root = Path(args.log_root).expanduser().resolve() / runner_cfg.experiment_name
         checkpoint = _resolve_checkpoint(args, log_root, runner_cfg)
+        if checkpoint is not None and not args.allow_unsafe_checkpoint:
+            mean_std = validate_checkpoint_noise_std(
+                checkpoint, maximum=runner_cfg.max_checkpoint_noise_std
+            )
+            if mean_std is not None:
+                print(f"Checkpoint mean action noise std: {mean_std:.3f}", flush=True)
         log_dir = None if args.no_logging else _make_log_dir(log_root, runner_cfg.run_name)
         if log_dir is not None:
             params_dir = log_dir / "params"
@@ -133,6 +145,13 @@ def main() -> None:
                 f"{runner.current_learning_iteration}",
                 flush=True,
             )
+
+        runner._purerl_noise_hook_handle = install_policy_noise_bounds(
+            runner.alg.policy,
+            runner.alg.optimizer,
+            minimum=runner_cfg.min_action_noise_std,
+            maximum=runner_cfg.max_action_noise_std,
+        )
 
         start_iteration = runner.current_learning_iteration
         runner.learn(
@@ -192,6 +211,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--load-run")
     parser.add_argument("--load-checkpoint")
     parser.add_argument("--pretrained-checkpoint")
+    parser.add_argument("--allow-unsafe-checkpoint", action="store_true")
     parser.add_argument("--output-checkpoint")
     parser.add_argument("--no-logging", action="store_true")
     parser.add_argument("--disable-random-episode-length", action="store_true")
