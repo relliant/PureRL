@@ -8,11 +8,12 @@ from .checkpoint import (
 from .export import export_feedforward_policy
 from .policy_noise import clamp_policy_noise, install_policy_noise_bounds
 from .rsl_vec_env import RslRlVecEnvWrapper
-from .wandb_logging import route_wandb_to_carb
+from .wandb_logging import configure_rsl_rl_wandb, route_wandb_to_carb
 
 __all__ = [
     "RslRlVecEnvWrapper",
     "clamp_policy_noise",
+    "configure_rsl_rl_wandb",
     "export_feedforward_policy",
     "find_checkpoint",
     "install_policy_noise_bounds",

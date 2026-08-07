@@ -145,28 +145,40 @@ exceeds available GPU memory.
 
 The default training presets are adapted from the XBot-L PPO configuration in
 [roboterax/humanoid-gym](https://github.com/roboterax/humanoid-gym): 24-second
-episodes, 60 policy steps per rollout, 10001 PPO iterations, a `1e-5` learning
-rate, two learning epochs, `gamma=0.994`, `lambda=0.9`, and a wider
+episodes, 60 policy steps per rollout, a `1e-5` learning rate, two learning
+epochs, `gamma=0.994`, `lambda=0.9`, and a wider
 `[768, 256, 128]` critic. Compatible environment settings use a `0.25` joint
 target action scale, 8-second command resampling, and command ranges of
 `x=[-0.3, 0.6]`, `y=[-0.3, 0.3]`, and `yaw=[-0.3, 0.3]`. TienKung-specific PD
 gains, 20-action observations, height scanning, reward functions and weights,
 termination behavior, and the policy-noise guard remain local because the
-XBot-L values are not transferable as configuration constants.
+XBot-L values are not transferable as configuration constants. The Flat
+bootstrap preset uses 3001 PPO iterations, while the Rough preset uses 10001.
 
 The action scale and PPO hyperparameters differ from earlier PureRL presets.
 Start a new Flat run after this change; do not resume or transfer a checkpoint
 trained with the old `0.5` action scale.
 
-Resume from the latest matching checkpoint in a run, or pass explicit run and
-checkpoint paths:
+Use `--resume` to restore the policy, optimizer state, and stored RSL-RL
+iteration. With no selectors it loads the naturally newest matching run and
+checkpoint. Explicit selectors are safer when several experiments exist:
 
 ```bash
 python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 --resume \
+  --task PureRL-Velocity-Flat-TienKung-v0 \
+  --num-envs 4096 \
+  --resume \
   --load-run /absolute/path/to/previous/run \
-  --load-checkpoint /absolute/path/to/model_100.pt
+  --load-checkpoint model_3000.pt \
+  --max-iterations 7000
 ```
+
+For resumed training, `--max-iterations` is the number of additional PPO
+iterations, not an absolute final iteration. The example resumes iteration
+3000 at iteration 3001, trains 7000 more iterations, and finishes near
+`model_10000.pt`. Do not use `--pretrained-checkpoint` for this workflow: that
+option transfers policy weights but deliberately starts a new optimizer and
+iteration counter.
 
 Use W&B online or offline logging with the same run directory as checkpoints
 and serialized configs:
@@ -182,9 +194,33 @@ python scripts/rsl_rl/train.py \
   --logger wandb --wandb-mode offline --wandb-project purerl
 ```
 
-For an online W&B run continuation, also provide `--wandb-run-id` and set
-`--wandb-resume allow`. Validate save, resume, flat-to-rough transfer, export,
-and offline W&B logging together with:
+To append metrics to the original online W&B run as well as resuming the local
+checkpoint, provide its run ID and use `--wandb-resume must`:
+
+```bash
+python scripts/rsl_rl/train.py \
+  --task PureRL-Velocity-Flat-TienKung-v0 \
+  --num-envs 4096 \
+  --resume \
+  --load-run /absolute/path/to/previous/run \
+  --load-checkpoint model_3000.pt \
+  --max-iterations 7000 \
+  --logger wandb \
+  --wandb-mode online \
+  --wandb-project purerl \
+  --wandb-entity YOUR_ENTITY \
+  --wandb-run-id EXISTING_RUN_ID \
+  --wandb-resume must \
+  --wandb-tags flat baseline
+```
+
+The continued checkpoints and local W&B files are written to a new timestamped
+run directory; the W&B run ID keeps the remote charts continuous. During this
+workflow PureRL permits RSL-RL to refresh the existing run's `log_dir` and
+serialized training configs, which differ legitimately after resuming. Use
+`--wandb-resume allow` instead when creating a new W&B run is acceptable if the
+specified ID cannot be resumed. Validate save, resume, flat-to-rough transfer,
+export, and offline W&B logging together with:
 
 ```bash
 python scripts/tools/check_rsl_workflow.py --wandb-offline

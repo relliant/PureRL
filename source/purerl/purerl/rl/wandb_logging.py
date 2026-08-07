@@ -12,6 +12,61 @@ from typing import Any, TextIO
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
+class _WandbConfigProxy:
+    """Allow RSL-RL to refresh config values when resuming a W&B run."""
+
+    def __init__(self, config: Any, *, allow_config_change: bool) -> None:
+        self._config = config
+        self._allow_config_change = allow_config_change
+
+    def update(self, *args: Any, **kwargs: Any) -> Any:
+        if self._allow_config_change:
+            kwargs.setdefault("allow_val_change", True)
+        return self._config.update(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._config, name)
+
+
+class _WandbModuleProxy:
+    """Forward W&B calls while wrapping its run-dependent config object."""
+
+    def __init__(self, wandb: Any, *, allow_config_change: bool) -> None:
+        self._wandb = wandb
+        self._allow_config_change = allow_config_change
+
+    @property
+    def config(self) -> _WandbConfigProxy:
+        return _WandbConfigProxy(
+            self._wandb.config,
+            allow_config_change=self._allow_config_change,
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._wandb, name)
+
+
+def configure_rsl_rl_wandb(*, allow_config_change: bool) -> None:
+    """Configure RSL-RL's W&B writer for new or resumed remote runs.
+
+    RSL-RL stores the local log directory and its complete configs in W&B.
+    Those values legitimately differ when a checkpoint continues in a new
+    local directory, while W&B rejects changes to an existing run's config by
+    default. Keep that validation for new runs and relax it only when the
+    caller explicitly selected a W&B resume mode.
+    """
+
+    from rsl_rl.utils import wandb_utils
+
+    wandb = wandb_utils.wandb
+    if isinstance(wandb, _WandbModuleProxy):
+        wandb = wandb._wandb
+    wandb_utils.wandb = _WandbModuleProxy(
+        wandb,
+        allow_config_change=allow_config_change,
+    )
+
+
 def route_wandb_to_carb() -> None:
     """Send W&B info to stdout and warnings/errors to matching Carb levels."""
 

@@ -16,6 +16,7 @@ from purerl.envs import TienKungLocomotionEnv
 from purerl.registry import get_task_spec
 from purerl.rl import (
     RslRlVecEnvWrapper,
+    configure_rsl_rl_wandb,
     find_checkpoint,
     install_policy_noise_bounds,
     route_wandb_to_carb,
@@ -272,6 +273,7 @@ def _configure_wandb_environment(runner_cfg, log_dir: Path | None) -> None:
     if runner_cfg.wandb_run_id:
         os.environ["WANDB_RUN_ID"] = runner_cfg.wandb_run_id
     route_wandb_to_carb()
+    configure_rsl_rl_wandb(allow_config_change=runner_cfg.wandb_resume != "never")
 
 
 def _close_runner_writer(runner) -> None:

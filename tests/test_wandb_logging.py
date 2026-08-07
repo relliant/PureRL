@@ -1,12 +1,67 @@
 from io import StringIO
 from types import SimpleNamespace
 
-from purerl.rl.wandb_logging import _install_wandb_carb_logging
+from purerl.rl.wandb_logging import (
+    _install_wandb_carb_logging,
+    configure_rsl_rl_wandb,
+)
 
 
 class TtyStringIO(StringIO):
     def isatty(self) -> bool:
         return True
+
+
+class RecordingConfig:
+    def __init__(self):
+        self.calls = []
+
+    def update(self, values, **kwargs):
+        self.calls.append((values, kwargs))
+        return "updated"
+
+
+def test_rsl_rl_wandb_config_allows_value_changes_when_resuming(monkeypatch):
+    from rsl_rl.utils import wandb_utils
+
+    config = RecordingConfig()
+    wandb = SimpleNamespace(config=config, log=lambda values: values)
+    monkeypatch.setattr(wandb_utils, "wandb", wandb)
+
+    configure_rsl_rl_wandb(allow_config_change=True)
+
+    assert wandb_utils.wandb.config.update({"log_dir": "new"}) == "updated"
+    assert config.calls == [({"log_dir": "new"}, {"allow_val_change": True})]
+    assert wandb_utils.wandb.log({"loss": 1.0}) == {"loss": 1.0}
+
+
+def test_rsl_rl_wandb_config_keeps_new_run_validation(monkeypatch):
+    from rsl_rl.utils import wandb_utils
+
+    config = RecordingConfig()
+    wandb = SimpleNamespace(config=config)
+    monkeypatch.setattr(wandb_utils, "wandb", wandb)
+
+    configure_rsl_rl_wandb(allow_config_change=False)
+
+    wandb_utils.wandb.config.update({"log_dir": "new"})
+    assert config.calls == [({"log_dir": "new"}, {})]
+
+
+def test_rsl_rl_wandb_configuration_is_idempotent(monkeypatch):
+    from rsl_rl.utils import wandb_utils
+
+    config = RecordingConfig()
+    wandb = SimpleNamespace(config=config)
+    monkeypatch.setattr(wandb_utils, "wandb", wandb)
+
+    configure_rsl_rl_wandb(allow_config_change=False)
+    configure_rsl_rl_wandb(allow_config_change=True)
+
+    wandb_utils.wandb.config.update({"runner_cfg": {"resume": True}})
+    assert config.calls == [
+        ({"runner_cfg": {"resume": True}}, {"allow_val_change": True})
+    ]
 
 
 def test_wandb_messages_use_stdout_and_matching_carb_log_levels():
