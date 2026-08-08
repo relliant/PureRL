@@ -57,7 +57,7 @@ class OnPolicyRunnerCfg(ConfigMixin):
     min_action_noise_std: float = 0.05
     max_action_noise_std: float = 3.0
     max_checkpoint_noise_std: float = 3.0
-    logger: str = "tensorboard"
+    logger: str = "wandb"
     wandb_project: str = "purerl"
     wandb_entity: str | None = None
     wandb_mode: str = "online"

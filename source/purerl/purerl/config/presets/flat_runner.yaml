@@ -2,8 +2,8 @@ class_name: OnPolicyRunner
 seed: 5
 device: cuda:0
 num_steps_per_env: 60
-max_iterations: 3001
-save_interval: 100
+max_iterations: 10001
+save_interval: 1000
 experiment_name: tienkung_flat
 run_name: ''
 obs_groups:
@@ -13,7 +13,7 @@ clip_actions: null
 min_action_noise_std: 0.05
 max_action_noise_std: 3.0
 max_checkpoint_noise_std: 3.0
-logger: tensorboard
+logger: wandb
 wandb_project: purerl
 wandb_entity: null
 wandb_mode: online

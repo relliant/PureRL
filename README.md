@@ -132,16 +132,19 @@ Run full flat training, then initialize rough training from its policy:
 
 ```bash
 python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 --num-envs 4096
+  --task PureRL-Velocity-Flat-TienKung-v0 \
+  --run-name flat_baseline_seed5
 
 python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Rough-TienKung-v0 --num-envs 4096 \
+  --task PureRL-Velocity-Rough-TienKung-v0 \
+  --run-name rough_transfer_seed5 \
   --pretrained-checkpoint /absolute/path/to/model_3000.pt
 ```
 
 Checkpoints are written below `logs/rsl_rl/tienkung_flat` and
-`logs/rsl_rl/tienkung_rough`. Start with 2048 environments if the default 4096
-exceeds available GPU memory.
+`logs/rsl_rl/tienkung_rough`. Both training presets default to 4096 environments
+and online W&B logging in the `purerl` project using the currently authenticated
+account. Start with `--num-envs 2048` if 4096 exceeds available GPU memory.
 
 The default training presets are adapted from the XBot-L PPO configuration in
 [roboterax/humanoid-gym](https://github.com/roboterax/humanoid-gym): 24-second
@@ -152,8 +155,8 @@ target action scale, 8-second command resampling, and command ranges of
 `x=[-0.3, 0.6]`, `y=[-0.3, 0.3]`, and `yaw=[-0.3, 0.3]`. TienKung-specific PD
 gains, 20-action observations, height scanning, reward functions and weights,
 termination behavior, and the policy-noise guard remain local because the
-XBot-L values are not transferable as configuration constants. The Flat
-bootstrap preset uses 3001 PPO iterations, while the Rough preset uses 10001.
+XBot-L values are not transferable as configuration constants. Both Flat and
+Rough presets use 10001 PPO iterations.
 
 The action scale and PPO hyperparameters differ from earlier PureRL presets.
 Start a new Flat run after this change; do not resume or transfer a checkpoint
@@ -180,19 +183,35 @@ iterations, not an absolute final iteration. The example resumes iteration
 option transfers policy weights but deliberately starts a new optimizer and
 iteration counter.
 
-Use W&B online or offline logging with the same run directory as checkpoints
-and serialized configs:
+Online W&B logging is enabled by default, so a named training run needs only:
 
 ```bash
 python scripts/rsl_rl/train.py \
   --task PureRL-Velocity-Flat-TienKung-v0 \
-  --logger wandb --wandb-mode online --wandb-project purerl \
-  --wandb-entity YOUR_ENTITY --wandb-tags flat baseline
+  --run-name flat_baseline_seed5
+```
 
+W&B uses the currently authenticated account and the `purerl` project from the
+runner preset. Override only the values needed for a particular run. For
+example, keep the same logging locally without uploading:
+
+```bash
 python scripts/rsl_rl/train.py \
   --task PureRL-Velocity-Flat-TienKung-v0 \
-  --logger wandb --wandb-mode offline --wandb-project purerl
+  --run-name flat_offline_debug \
+  --wandb-mode offline
 ```
+
+Use `--logger tensorboard` to disable W&B for a run. Custom W&B projects,
+entities, and tags remain available through `--wandb-project`,
+`--wandb-entity`, and `--wandb-tags` or their runner YAML fields.
+
+`--run-name` labels both the local checkpoint directory and the W&B run. RSL-RL
+prefixes the displayed name with the launch timestamp, so
+`--run-name flat_baseline_seed5` appears as
+`2026-08-08_12-30-00_flat_baseline_seed5`. Use names that identify the terrain,
+experiment variant, and seed. The same value can be stored as `run_name` in a
+runner YAML; the command-line option overrides that configured value.
 
 To append metrics to the original online W&B run as well as resuming the local
 checkpoint, provide its run ID and use `--wandb-resume must`:
@@ -200,15 +219,11 @@ checkpoint, provide its run ID and use `--wandb-resume must`:
 ```bash
 python scripts/rsl_rl/train.py \
   --task PureRL-Velocity-Flat-TienKung-v0 \
-  --num-envs 4096 \
   --resume \
   --load-run /absolute/path/to/previous/run \
   --load-checkpoint model_3000.pt \
   --max-iterations 7000 \
-  --logger wandb \
-  --wandb-mode online \
-  --wandb-project purerl \
-  --wandb-entity YOUR_ENTITY \
+  --run-name flat_baseline_seed5 \
   --wandb-run-id EXISTING_RUN_ID \
   --wandb-resume must \
   --wandb-tags flat baseline
@@ -237,9 +252,30 @@ scratch; in particular, do not use a checkpoint whose W&B
 
 ## Evaluation And Export
 
-Use the play task that matches the checkpoint's training terrain. For example,
-open an interactive Isaac Sim window for a rough-terrain policy and run it at
-real-time speed with one robot:
+Use the play task that matches the checkpoint's training terrain.
+
+Evaluate a Flat checkpoint in an interactive Isaac Sim window with one robot
+and a fixed forward velocity command:
+
+```bash
+python scripts/rsl_rl/play.py \
+  --task PureRL-Velocity-Flat-TienKung-Play-v0 \
+  --checkpoint /absolute/path/to/flat_run/model_10000.pt \
+  --command 0.5 0.0 0.0 \
+  --show \
+  --real-time \
+  --no-export
+```
+
+Flat Play already defaults to one robot on a plane, 1000 policy steps, and the
+`[0.5, 0.0, 0.0]` command, so `--num-envs`, `--steps`, and `--command` can be
+omitted when those defaults are suitable. Omit `--checkpoint` as well to load
+the newest `model_*.pt` from the newest run under
+`logs/rsl_rl/tienkung_flat`, or use `--load-run` and `--load-checkpoint` to
+select a run without writing an absolute checkpoint path. Change
+`--command VX VY WZ` to evaluate forward, lateral, and yaw command tracking.
+
+For a Rough checkpoint, open the corresponding generated-terrain play task:
 
 ```bash
 python scripts/rsl_rl/play.py \

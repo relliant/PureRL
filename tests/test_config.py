@@ -207,11 +207,12 @@ def test_runner_configs_expose_rsl_rl_dictionary_contract():
     assert serialized["algorithm"]["gamma"] == 0.994
     assert serialized["algorithm"]["lam"] == 0.9
     assert serialized["num_steps_per_env"] == 60
-    assert flat.max_iterations == 3001
+    assert flat.max_iterations == 10001
     assert serialized["max_iterations"] == 10001
     assert serialized["min_action_noise_std"] == 0.05
     assert serialized["max_action_noise_std"] == 3.0
     assert serialized["max_checkpoint_noise_std"] == 3.0
+    assert flat.logger == serialized["logger"] == "wandb"
     assert serialized["wandb_project"] == "purerl"
     assert serialized["wandb_mode"] == "online"
 
