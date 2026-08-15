@@ -254,6 +254,20 @@ class TienKungLocomotionEnv(BaseVecEnv):
             )
         )
 
+    def _get_gait_phase(self) -> Any:
+        """开环步态相位 -> stance mask [num_envs, 2]（1=支撑, 0=摆动，两脚反相）。"""
+        phase = self.episode_length_buf * self.step_dt / self.cfg.gait.cycle_time
+        sin_pos = torch.sin(2 * torch.pi * phase)
+        stance_mask = torch.zeros((self.num_envs, 2), dtype=torch.bool, device=self.device)
+        stance_mask[:, 0] = sin_pos >= 0
+        stance_mask[:, 1] = sin_pos < 0
+        stance_mask[torch.abs(sin_pos) < 0.1] = True
+        return stance_mask
+
+    def _foot_contact_mask(self) -> Any:
+        forces = self.state.net_contact_forces[:, self._foot_body_indices]
+        return torch.norm(forces, dim=-1) > self.cfg.gait.contact_threshold
+
     def _make_reward_manager(self, cfg: EnvCfg) -> RewardManager:
         leg_joint_indices = tuple(
             index
@@ -328,6 +342,26 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 env.state.joint_positions[:, leg_joint_indices],
                 env.default_joint_positions[:, leg_joint_indices],
                 env.commands,
+            ),
+            "feet_contact_number": lambda env: reward_terms.feet_contact_number(
+                env._foot_contact_mask(), env._get_gait_phase()
+            ),
+            "feet_distance": lambda env: reward_terms.feet_distance(
+                env.state.body_positions[:, env._foot_body_indices],
+                min_dist=env.cfg.gait.foot_min_dist,
+                max_dist=env.cfg.gait.foot_max_dist,
+            ),
+            "base_height": lambda env: reward_terms.base_height(
+                env.state.root_position[:, 2],
+                env.state.body_positions[:, env._foot_body_indices],
+                target=env.cfg.robot.default_root_height,
+                foot_offset=env.cfg.gait.foot_height_offset,
+            ),
+            "feet_clearance": lambda env: reward_terms.feet_clearance(
+                env.state.body_positions[:, env._foot_body_indices],
+                1.0 - env._get_gait_phase().float(),
+                target=env.cfg.gait.target_feet_height,
+                foot_offset=env.cfg.gait.foot_height_offset,
             ),
         }
         unknown = set(cfg.reward_weights()) - set(functions)

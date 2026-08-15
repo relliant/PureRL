@@ -163,6 +163,16 @@ class RewardTermCfg(ConfigMixin):
     weight: float
 
 
+@dataclass(frozen=True)
+class GaitCfg(ConfigMixin):
+    cycle_time: float = 0.5           # 步态周期 [s]（天工腿长 0.8m，步频 ~2Hz）
+    contact_threshold: float = 1.0    # 脚接触力判定阈值 [N]
+    foot_min_dist: float = 0.20       # 步宽下限 [m]
+    foot_max_dist: float = 0.50       # 步宽上限 [m]
+    target_feet_height: float = 0.06  # 摆动脚目标离地高度 [m]
+    foot_height_offset: float = 0.0569  # 脚 body(ankle_roll) 原点到脚底距离 [m]
+
+
 ROUGH_REWARD_TERMS = (
     RewardTermCfg("termination_penalty", -200.0),
     RewardTermCfg("track_lin_vel_xy_exp", 1.5),
@@ -180,6 +190,10 @@ ROUGH_REWARD_TERMS = (
     RewardTermCfg("joint_deviation_hip", -0.1),
     RewardTermCfg("joint_deviation_arms", -0.05),
     RewardTermCfg("stand_still", -0.2),
+    RewardTermCfg("feet_contact_number", 1.2),
+    RewardTermCfg("feet_distance", 0.2),
+    RewardTermCfg("base_height", 0.2),
+    RewardTermCfg("feet_clearance", 1.0),
 )
 
 
@@ -261,6 +275,7 @@ class EnvCfg(ConfigMixin):
     randomization: RandomizationCfg = field(default_factory=RandomizationCfg)
     terrain: TerrainCfg = field(default_factory=TerrainCfg)
     rewards: tuple[RewardTermCfg, ...] = ROUGH_REWARD_TERMS
+    gait: GaitCfg = field(default_factory=GaitCfg)
 
     @property
     def max_episode_steps(self) -> int:

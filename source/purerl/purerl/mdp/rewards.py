@@ -98,3 +98,31 @@ def stand_still_joint_deviation_l1(
 ) -> Any:
     standing = norm(command[..., :2]) < command_threshold
     return joint_deviation_l1(joint_positions, default_joint_positions) * standing
+
+
+def feet_contact_number(contact: Any, stance_mask: Any) -> Any:
+    """接触与期望步态相位一致则 +1，否则 -0.3，对双脚取平均。"""
+    reward = where(contact == stance_mask, 1.0, -0.3)
+    return sum_axis(reward, axis=-1) / 2.0
+
+
+def feet_distance(body_positions: Any, *, min_dist: float = 0.2, max_dist: float = 0.5) -> Any:
+    """惩罚两脚靠太近（交叉步）或分太开（螃蟹步）。"""
+    foot_dist = norm(body_positions[:, 0, :2] - body_positions[:, 1, :2], axis=-1)
+    d_min = clip(foot_dist - min_dist, -0.5, 0.0)
+    d_max = clip(foot_dist - max_dist, 0.0, 0.5)
+    return (exp(-abs_value(d_min) * 100.0) + exp(-abs_value(d_max) * 100.0)) / 2.0
+
+
+def base_height(root_position_z: Any, foot_positions: Any, *, target: float = 0.9, foot_offset: float = 0.0569) -> Any:
+    """保持躯干在脚上方目标高度（惩罚蹲姿/踮脚）。foot_offset 为脚 body 原点到脚底距离。"""
+    avg_foot_z = sum_axis(foot_positions[..., 2], axis=-1) / 2.0
+    height = root_position_z - (avg_foot_z - foot_offset)
+    return exp(-abs_value(height - target) * 100.0)
+
+
+def feet_clearance(foot_positions: Any, swing_mask: Any, *, target: float = 0.06, foot_offset: float = 0.0569) -> Any:
+    """摆动相内脚离地高度达到目标值才给奖励（flat 地面近似）。"""
+    foot_z = foot_positions[..., 2] - foot_offset
+    reached = abs_value(foot_z - target) < 0.01
+    return sum_axis(reached * swing_mask, axis=-1)
