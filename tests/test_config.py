@@ -79,7 +79,8 @@ def test_environment_variants_are_explicit_and_checkpoint_compatible():
     assert rough.terrain.terrain_type == "generator"
     assert flat.observations.dimension == rough.observations.dimension == OBSERVATION_DIM
     assert flat.scene.num_envs == rough.scene.num_envs == 4096
-    assert flat_play.scene.num_envs == rough_play.scene.num_envs == 1
+    assert flat_play.scene.num_envs == 1
+    assert rough_play.scene.num_envs == 7  # 多地形类型轮询评估
     assert not flat.sensors.lidar.enabled
     assert not rough.sensors.lidar.enabled
     assert flat_play.sensors.lidar.enabled
@@ -90,7 +91,7 @@ def test_environment_variants_are_explicit_and_checkpoint_compatible():
     assert not flat_play.observations.enable_corruption
     assert not rough_play.terrain.curriculum
     assert rough_play.terrain.max_initial_level is None
-    assert rough_play.terrain.selected_patch == "random_rough"
+    assert rough_play.terrain.selected_patch is None  # 轮询全部地形类型
     assert rough_play.terrain.selected_level == 4
     assert rough_play.commands.ranges.lin_vel_x == (0.5, 0.5)
     assert not rough_play.commands.heading_command

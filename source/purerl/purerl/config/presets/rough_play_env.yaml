@@ -17,7 +17,7 @@ sim:
   gpu_max_num_partitions: 8
   gpu_collision_stack_size: 67108864
 scene:
-  num_envs: 1
+  num_envs: 7
   env_spacing: 2.5
 robot:
   urdf_path: ../../assets/robot_description/tienkung/tienkung2_lite.urdf
@@ -145,7 +145,7 @@ terrain:
   slope_threshold: 0.75
   max_initial_level: null
   curriculum: false
-  selected_patch: random_rough
+  selected_patch: null
   selected_level: 4
   patches:
     - name: flat

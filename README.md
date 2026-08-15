@@ -118,6 +118,23 @@ Training presets keep LiDAR disabled to avoid creating an RTX render product
 for large vectorized runs. LiDAR points are intentionally not appended to the
 259-dimensional locomotion observation, preserving existing checkpoints.
 
+### Gait Rewards
+
+The Flat and Rough locomotion presets add four humanoid-gym-inspired gait
+reward terms on top of the standard velocity-tracking and energy terms:
+
+| Term | Weight | Purpose |
+| --- | --- | --- |
+| `feet_contact_number` | 1.2 | Penalize foot contacts that do not match the open-loop gait phase |
+| `feet_distance` | 0.2 | Keep stance width inside `[foot_min_dist, foot_max_dist]` |
+| `base_height` | 0.2 | Hold the pelvis at `default_root_height` above the ground |
+| `feet_clearance` | 1.0 | Lift the swing foot to `target_feet_height` |
+
+Gait parameters live under the `gait:` block of each environment YAML and are
+TienKung-specific (leg length `0.8 m`, foot sole offset `0.0569 m`). See
+[`GAIT_REWARD_TUNING.md`](GAIT_REWARD_TUNING.md) for the measured values and
+the tuning procedure.
+
 ## Training
 
 Run a short flat PPO smoke test:
@@ -275,43 +292,45 @@ the newest `model_*.pt` from the newest run under
 select a run without writing an absolute checkpoint path. Change
 `--command VX VY WZ` to evaluate forward, lateral, and yaw command tracking.
 
-For a Rough checkpoint, open the corresponding generated-terrain play task:
+For a Rough checkpoint, open the corresponding generated-terrain play task.
+Rough Play now defaults to **multi-terrain evaluation**: seven environments,
+each on the highest difficulty level (`selected_level: 4`) of a different
+terrain type, so one playback covers all seven patch types side by side:
+
+```bash
+python scripts/rsl_rl/play.py \
+  --task PureRL-Velocity-Rough-TienKung-Play-v0 \
+  --checkpoint /absolute/path/to/healthy_model.pt \
+  --command 0.5 0.0 0.0 \
+  --show \
+  --real-time \
+  --no-export
+```
+
+The seven robots are placed on `flat`, `random_rough`, `slope_up`,
+`slope_down`, `stairs_up`, `stairs_down`, and `random_blocks`. To focus on a
+single terrain type, pass `--terrain-patch` and `--terrain-level` (these
+override the YAML `selected_patch: null` / `selected_level: 4`):
 
 ```bash
 python scripts/rsl_rl/play.py \
   --task PureRL-Velocity-Rough-TienKung-Play-v0 \
   --checkpoint /absolute/path/to/healthy_model.pt \
   --num-envs 1 \
-  --steps 1000 \
-  --command 0.5 0.0 0.0 \
-  --terrain-patch random_rough \
-  --terrain-level 4 \
-  --show \
-  --real-time \
-  --no-export
-```
-
-`--show` uses the interactive `human` render mode, submits viewport frames,
-and aims the camera relative to the selected environment origin. Rough Play
-defaults to one robot, a fixed `[0.5, 0.0, 0.0]` velocity command, and the
-highest-level `random_rough` tile. Select another generated patch explicitly:
-
-```bash
-python scripts/rsl_rl/play.py \
-  --task PureRL-Velocity-Rough-TienKung-Play-v0 \
-  --checkpoint /absolute/path/to/healthy_model.pt \
   --terrain-patch stairs_up \
   --terrain-level 4 \
   --command 0.5 0.0 0.0 \
   --show --real-time --no-export
 ```
 
-Available patch names are `flat`, `random_rough`, `slope_up`, `slope_down`,
-`stairs_up`, `stairs_down`, and `random_blocks`. Playback prints the resolved
-command, terrain patch/level/column, LiDAR mount/profile, periodic robot
-positions, and the latest LiDAR point count. Use `--no-lidar` to disable the
-playback sensor or `--lidar` to enable it for a custom config. Set
-`--log-interval 0` to disable progress lines.
+`--show` uses the interactive `human` render mode, submits viewport frames,
+and aims the camera relative to the selected environment origin. Available
+patch names are `flat`, `random_rough`, `slope_up`, `slope_down`, `stairs_up`,
+`stairs_down`, and `random_blocks`. Playback prints the resolved command,
+terrain patch/level/column, LiDAR mount/profile, periodic robot positions,
+and the latest LiDAR point count. Use `--no-lidar` to disable the playback
+sensor or `--lidar` to enable it for a custom config. Set `--log-interval 0`
+to disable progress lines.
 
 Record 1000 policy steps, approximately 20 seconds at the default 50 Hz
 policy frequency, without opening the interactive window:
