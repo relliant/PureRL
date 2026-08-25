@@ -64,6 +64,25 @@ def feet_air_time_positive_biped(
     return clip(reward, 0.0, threshold) * moving
 
 
+def feet_air_time_on_contact(
+    last_air_time: Any,
+    first_contact: Any,
+    command: Any,
+    *,
+    threshold: float = 0.25,
+    command_threshold: float = 0.1,
+) -> Any:
+    """Reward a deliberate swing only once, when the foot lands.
+
+    Unlike the legacy implementation, this does not pay continuously while a
+    foot remains in stance. ``first_contact`` should be latched across all
+    physics substeps that make up one policy step.
+    """
+
+    moving = norm(command[..., :2]) > command_threshold
+    return sum_axis(clip(last_air_time - threshold, 0.0, threshold) * first_contact) * moving
+
+
 def feet_slide(foot_linear_velocity: Any, contact_forces: Any, *, threshold: float = 1.0) -> Any:
     magnitudes = norm(contact_forces)
     if len(magnitudes.shape) == 3:
@@ -100,10 +119,25 @@ def stand_still_joint_deviation_l1(
     return joint_deviation_l1(joint_positions, default_joint_positions) * standing
 
 
-def feet_contact_number(contact: Any, stance_mask: Any) -> Any:
-    """接触与期望步态相位一致则 +1，否则 -0.3，对双脚取平均。"""
+def feet_contact_number(
+    contact: Any,
+    stance_mask: Any,
+    command: Any | None = None,
+    *,
+    command_threshold: float = 0.1,
+) -> Any:
+    """Reward alternating support contacts during commanded locomotion.
+
+    Standing commands are excluded because a fixed alternating clock is not a
+    meaningful target while the robot is supposed to remain still.
+    """
+
     reward = where(contact == stance_mask, 1.0, -0.3)
-    return sum_axis(reward, axis=-1) / 2.0
+    value = sum_axis(reward, axis=-1) / 2.0
+    if command is None:
+        return value
+    moving = norm(command[..., :2]) > command_threshold
+    return value * moving
 
 
 def feet_distance(body_positions: Any, *, min_dist: float = 0.2, max_dist: float = 0.5) -> Any:
@@ -114,15 +148,30 @@ def feet_distance(body_positions: Any, *, min_dist: float = 0.2, max_dist: float
     return (exp(-abs_value(d_min) * 100.0) + exp(-abs_value(d_max) * 100.0)) / 2.0
 
 
-def base_height(root_position_z: Any, foot_positions: Any, *, target: float = 0.9, foot_offset: float = 0.0569) -> Any:
+def base_height(
+    root_position_z: Any,
+    foot_positions: Any,
+    *,
+    target: float = 0.9,
+    foot_offset: float = 0.0569,
+    sigma: float = 0.05,
+) -> Any:
     """保持躯干在脚上方目标高度（惩罚蹲姿/踮脚）。foot_offset 为脚 body 原点到脚底距离。"""
     avg_foot_z = sum_axis(foot_positions[..., 2], axis=-1) / 2.0
     height = root_position_z - (avg_foot_z - foot_offset)
-    return exp(-abs_value(height - target) * 100.0)
+    return exp(-((height - target) / sigma) ** 2)
 
 
-def feet_clearance(foot_positions: Any, swing_mask: Any, *, target: float = 0.06, foot_offset: float = 0.0569) -> Any:
-    """摆动相内脚离地高度达到目标值才给奖励（flat 地面近似）。"""
+def feet_clearance(
+    foot_positions: Any,
+    swing_mask: Any,
+    *,
+    target: float = 0.06,
+    foot_offset: float = 0.0569,
+    sigma: float = 0.025,
+) -> Any:
+    """Smoothly reward the swing foot for reaching a safe clearance."""
+
     foot_z = foot_positions[..., 2] - foot_offset
-    reached = abs_value(foot_z - target) < 0.01
-    return sum_axis(reached * swing_mask, axis=-1)
+    reward = exp(-((foot_z - target) / sigma) ** 2)
+    return sum_axis(reward * swing_mask, axis=-1)

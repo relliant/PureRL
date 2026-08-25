@@ -130,10 +130,27 @@ reward terms on top of the standard velocity-tracking and energy terms:
 | `base_height` | 0.2 | Hold the pelvis at `default_root_height` above the ground |
 | `feet_clearance` | 1.0 | Lift the swing foot to `target_feet_height` |
 
+The existing `feet_air_time` term is also event-based: it pays only when a
+foot lands after a sufficiently long swing, rather than paying every policy
+step while the foot remains planted. Contact transitions are latched over all
+physics substeps, so a landing is not lost when the policy decimation is four.
+The alternating-contact and clearance terms are disabled for near-zero
+velocity commands, allowing the standing-command environments to keep both
+feet planted.
+
 Gait parameters live under the `gait:` block of each environment YAML and are
 TienKung-specific (leg length `0.8 m`, foot sole offset `0.0569 m`). See
 [`GAIT_REWARD_TUNING.md`](GAIT_REWARD_TUNING.md) for the measured values and
-the tuning procedure.
+the tuning procedure. These reward changes affect training only; an existing
+checkpoint does not change until it is retrained or resumed with the updated
+environment configuration. Start a fresh Flat run when comparing gait quality:
+
+```bash
+python scripts/rsl_rl/train.py \
+  --task PureRL-Velocity-Flat-TienKung-v0 \
+  --run-name flat_gait_v1 \
+  --max-iterations 10001
+```
 
 ## Training
 

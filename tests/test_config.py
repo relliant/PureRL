@@ -117,6 +117,11 @@ def test_training_presets_use_humanoid_gym_inspired_locomotion_settings():
     assert rough_cfg.randomization.pelvis_mass_delta == (-5.0, 5.0)
     assert rough_cfg.randomization.push_interval_s == (4.0, 4.0)
     assert rough_cfg.terrain.max_initial_level == 5
+    flat_cfg = make_flat_env_cfg()
+    assert flat_cfg.gait.cycle_time == 0.5
+    assert flat_cfg.gait.command_threshold == 0.1
+    assert flat_cfg.gait.air_time_threshold == 0.25
+    assert flat_cfg.gait.clearance_sigma == 0.025
 
 
 def test_invalid_observation_dimension_is_rejected():

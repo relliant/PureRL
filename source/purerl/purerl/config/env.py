@@ -167,10 +167,14 @@ class RewardTermCfg(ConfigMixin):
 class GaitCfg(ConfigMixin):
     cycle_time: float = 0.5           # 步态周期 [s]（天工腿长 0.8m，步频 ~2Hz）
     contact_threshold: float = 1.0    # 脚接触力判定阈值 [N]
+    command_threshold: float = 0.1    # 低于该速度时不强制交替步态 [m/s]
+    air_time_threshold: float = 0.25  # 最小摆动时间 [s]
     foot_min_dist: float = 0.20       # 步宽下限 [m]
     foot_max_dist: float = 0.50       # 步宽上限 [m]
     target_feet_height: float = 0.06  # 摆动脚目标离地高度 [m]
     foot_height_offset: float = 0.0569  # 脚 body(ankle_roll) 原点到脚底距离 [m]
+    clearance_sigma: float = 0.025    # 摆脚高度奖励的平滑尺度 [m]
+    base_height_sigma: float = 0.05   # 躯干高度奖励的平滑尺度 [m]
 
 
 ROUGH_REWARD_TERMS = (
@@ -358,6 +362,17 @@ class EnvCfg(ConfigMixin):
             raise ValueError("Command heading_env_ratio must be between zero and one")
         if not 0.0 <= self.commands.standing_env_ratio <= 1.0:
             raise ValueError("Command standing_env_ratio must be between zero and one")
+        gait = self.gait
+        if gait.cycle_time <= 0.0 or gait.contact_threshold < 0.0:
+            raise ValueError("Gait cycle time and contact threshold must be non-negative/positive")
+        if gait.command_threshold < 0.0 or gait.air_time_threshold < 0.0:
+            raise ValueError("Gait command and air-time thresholds must be non-negative")
+        if gait.foot_min_dist < 0.0 or gait.foot_max_dist < gait.foot_min_dist:
+            raise ValueError("Gait foot distance bounds are invalid")
+        if gait.target_feet_height < 0.0 or gait.foot_height_offset < 0.0:
+            raise ValueError("Gait foot heights must be non-negative")
+        if gait.clearance_sigma <= 0.0 or gait.base_height_sigma <= 0.0:
+            raise ValueError("Gait reward smoothing scales must be positive")
         scan_x, scan_y = self.sensors.height_scan_size
         scan_points = (round(scan_x / self.sensors.height_scan_resolution) + 1) * (
             round(scan_y / self.sensors.height_scan_resolution) + 1

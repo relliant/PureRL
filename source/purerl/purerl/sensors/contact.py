@@ -16,6 +16,13 @@ class ContactHistory:
         self.force_threshold = force_threshold
         self.in_contact = template > force_threshold
         self.first_contact = self.in_contact & False
+        # A policy step contains several physics steps. Keep contact events
+        # latched until the environment has consumed the reward for the step.
+        self.contact_events = (
+            self.first_contact.clone()
+            if type(self.first_contact).__module__.startswith("torch")
+            else self.first_contact.copy()
+        )
         self.current_air_time = template * 0.0
         self.current_contact_time = template * 0.0
         self.last_air_time = template * 0.0
@@ -28,6 +35,7 @@ class ContactHistory:
 
         contact = norm(net_forces) > self.force_threshold
         self.first_contact = contact & ~self.in_contact
+        self.contact_events |= self.first_contact
         completed_air_time = self.current_air_time + dt
         completed_contact_time = self.current_contact_time + dt
         self.last_air_time = _where(self.first_contact, completed_air_time, self.last_air_time)
@@ -42,9 +50,16 @@ class ContactHistory:
     def reset(self, env_ids: Any) -> None:
         self.in_contact[env_ids] = False
         self.first_contact[env_ids] = False
+        self.contact_events[env_ids] = False
         self.current_air_time[env_ids] = 0.0
         self.current_contact_time[env_ids] = 0.0
         self.last_air_time[env_ids] = 0.0
+
+    def clear_events(self) -> None:
+        """Clear contact transitions after the current policy reward is computed."""
+
+        self.first_contact[...] = False
+        self.contact_events[...] = False
 
 
 def _where(condition: Any, true_value: Any, false_value: Any) -> Any:

@@ -53,7 +53,10 @@ def test_contact_history_tracks_first_contact_and_air_time():
 
     history.update(left_contact, 0.1)
     assert history.first_contact.tolist() == [[False, False]]
+    assert history.contact_events.tolist() == [[True, False]]
     assert np.allclose(history.current_contact_time, [[0.2, 0.0]])
+    history.clear_events()
+    assert history.contact_events.tolist() == [[False, False]]
     history.reset(np.asarray([0]))
     assert np.allclose(history.current_air_time, 0.0)
     assert np.allclose(history.current_contact_time, 0.0)

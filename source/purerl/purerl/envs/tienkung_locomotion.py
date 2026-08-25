@@ -313,11 +313,11 @@ class TienKungLocomotionEnv(BaseVecEnv):
             "action_rate_l2": lambda env: reward_terms.action_rate_l2(
                 env.action_manager.action, env.action_manager.previous_action
             ),
-            "feet_air_time": lambda env: reward_terms.feet_air_time_positive_biped(
-                env.contact_history.current_air_time,
-                env.contact_history.current_contact_time,
+            "feet_air_time": lambda env: reward_terms.feet_air_time_on_contact(
+                env.contact_history.last_air_time,
+                env.contact_history.contact_events,
                 env.commands,
-                threshold=0.4,
+                threshold=env.cfg.gait.air_time_threshold,
             ),
             "feet_slide": lambda env: reward_terms.feet_slide(
                 env.state.body_linear_velocities[:, env._foot_body_indices],
@@ -344,7 +344,10 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 env.commands,
             ),
             "feet_contact_number": lambda env: reward_terms.feet_contact_number(
-                env._foot_contact_mask(), env._get_gait_phase()
+                env._foot_contact_mask(),
+                env._get_gait_phase(),
+                env.commands,
+                command_threshold=env.cfg.gait.command_threshold,
             ),
             "feet_distance": lambda env: reward_terms.feet_distance(
                 env.state.body_positions[:, env._foot_body_indices],
@@ -356,12 +359,14 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 env.state.body_positions[:, env._foot_body_indices],
                 target=env.cfg.robot.default_root_height,
                 foot_offset=env.cfg.gait.foot_height_offset,
+                sigma=env.cfg.gait.base_height_sigma,
             ),
             "feet_clearance": lambda env: reward_terms.feet_clearance(
                 env.state.body_positions[:, env._foot_body_indices],
                 1.0 - env._get_gait_phase().float(),
                 target=env.cfg.gait.target_feet_height,
                 foot_offset=env.cfg.gait.foot_height_offset,
+                sigma=env.cfg.gait.clearance_sigma,
             ),
         }
         unknown = set(cfg.reward_weights()) - set(functions)
@@ -543,6 +548,9 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 terrain_heights,
                 offset=self.cfg.sensors.height_scan_offset,
             )
+
+    def _clear_step_events(self) -> None:
+        self.contact_history.clear_events()
 
     def _height_scan_world_points(self) -> torch.Tensor:
         yaw = _yaw_from_quaternion(self.state.root_quaternion)

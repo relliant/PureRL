@@ -90,6 +90,7 @@ class BaseVecEnv:
         self.episode_length_buf += 1
         terminated, truncated = self.termination_manager.compute(self)
         reward = self.reward_manager.compute(self)
+        self._clear_step_events()
 
         done = terminated | truncated
         done_env_ids = self.backend.nonzero(done)
@@ -157,3 +158,6 @@ class BaseVecEnv:
 
     def _reset_sensors(self, env_ids: Any) -> None:
         """Reset derived sensor history for selected environments."""
+
+    def _clear_step_events(self) -> None:
+        """Clear latched sensor events after reward terms consume them."""

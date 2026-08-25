@@ -18,7 +18,10 @@ from purerl.mdp.managers import (
 from purerl.mdp.observations import build_policy_observation
 from purerl.mdp.rewards import (
     action_rate_l2,
+    feet_air_time_on_contact,
     feet_air_time_positive_biped,
+    feet_clearance,
+    feet_contact_number,
     feet_slide,
     track_lin_vel_xy_exp,
     undesired_contacts,
@@ -203,6 +206,39 @@ def test_positive_biped_air_time_uses_single_stance_mode_time():
     reward = feet_air_time_positive_biped(air_time, contact_time, command, threshold=0.4)
 
     assert reward == pytest.approx([0.2, 0.0])
+
+
+def test_air_time_reward_pays_only_on_latched_landing_events():
+    last_air_time = np.asarray([[0.4, 0.1], [0.4, 0.4]])
+    contact_events = np.asarray([[True, False], [False, False]])
+    command = np.asarray([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+
+    reward = feet_air_time_on_contact(
+        last_air_time, contact_events, command, threshold=0.25
+    )
+
+    assert reward == pytest.approx([0.15, 0.0])
+
+
+def test_gait_contact_reward_ignores_standing_commands():
+    contact = np.asarray([[True, True], [True, False]])
+    stance = np.asarray([[True, True], [True, False]])
+    command = np.asarray([[0.0, 0.0, 0.0], [0.2, 0.0, 0.0]])
+
+    reward = feet_contact_number(contact, stance, command)
+
+    assert reward == pytest.approx([0.0, 1.0])
+
+
+def test_swing_clearance_is_smooth_and_zero_for_stance():
+    foot_positions = np.asarray([[[0.1169, 0.0, 0.1169], [0.0569, 0.0, 0.0569]]])
+    swing = np.asarray([[1.0, 0.0]])
+
+    reward = feet_clearance(
+        foot_positions, swing, target=0.06, foot_offset=0.0569, sigma=0.025
+    )
+
+    assert reward == pytest.approx([1.0], abs=1.0e-5)
 
 
 def test_contact_terms_reduce_sensor_history_before_body_dimension():

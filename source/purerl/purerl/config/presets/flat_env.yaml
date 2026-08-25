@@ -172,7 +172,11 @@ rewards:
 gait:
   cycle_time: 0.5
   contact_threshold: 1.0
+  command_threshold: 0.1
+  air_time_threshold: 0.25
   foot_min_dist: 0.2
   foot_max_dist: 0.5
   target_feet_height: 0.06
   foot_height_offset: 0.0569
+  clearance_sigma: 0.025
+  base_height_sigma: 0.05

@@ -59,9 +59,15 @@ def test_legacy_schema_and_weights_match_current_contract():
     assert metadata["observation_term_shapes"] == [
         [term.dimension] for term in OBSERVATION_TERMS
     ]
-    assert set(metadata["reward_terms"]) == set(flat.reward_weights())
-    assert metadata["reward_weights"] == flat.reward_weights()
-    assert set(rough.reward_weights()) == set(metadata["reward_terms"])
+    # The frozen simulator fixture predates the PureRL gait terms. Preserve
+    # its baseline contract while allowing current configs to add rewards.
+    flat_weights = flat.reward_weights()
+    rough_weights = rough.reward_weights()
+    assert set(metadata["reward_terms"]).issubset(flat_weights)
+    assert {
+        name: flat_weights[name] for name in metadata["reward_terms"]
+    } == metadata["reward_weights"]
+    assert set(flat_weights) == set(rough_weights)
     assert metadata["termination_terms"] == ["time_out", "base_contact", "bad_orientation"]
 
 
