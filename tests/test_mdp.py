@@ -235,10 +235,26 @@ def test_swing_clearance_is_smooth_and_zero_for_stance():
     swing = np.asarray([[1.0, 0.0]])
 
     reward = feet_clearance(
-        foot_positions, swing, target=0.06, foot_offset=0.0569, sigma=0.025
+        foot_positions,
+        swing,
+        np.asarray([[0.2, 0.0, 0.0]]),
+        target=0.06,
+        foot_offset=0.0569,
+        sigma=0.025,
     )
 
     assert reward == pytest.approx([1.0], abs=1.0e-5)
+
+
+def test_swing_clearance_ignores_standing_commands():
+    foot_positions = np.asarray([[[0.1169, 0.0, 0.1169], [0.0569, 0.0, 0.0569]]])
+    swing = np.asarray([[1.0, 0.0]])
+
+    reward = feet_clearance(
+        foot_positions, swing, np.asarray([[0.0, 0.0, 0.0]]), target=0.06
+    )
+
+    assert reward == pytest.approx([0.0])
 
 
 def test_contact_terms_reduce_sensor_history_before_body_dimension():

@@ -168,7 +168,7 @@ class GaitCfg(ConfigMixin):
     cycle_time: float = 0.5           # 步态周期 [s]（天工腿长 0.8m，步频 ~2Hz）
     contact_threshold: float = 1.0    # 脚接触力判定阈值 [N]
     command_threshold: float = 0.1    # 低于该速度时不强制交替步态 [m/s]
-    air_time_threshold: float = 0.25  # 最小摆动时间 [s]
+    air_time_threshold: float = 0.12  # 最小摆动时间 [s]
     foot_min_dist: float = 0.20       # 步宽下限 [m]
     foot_max_dist: float = 0.50       # 步宽上限 [m]
     target_feet_height: float = 0.06  # 摆动脚目标离地高度 [m]
@@ -194,10 +194,10 @@ ROUGH_REWARD_TERMS = (
     RewardTermCfg("joint_deviation_hip", -0.1),
     RewardTermCfg("joint_deviation_arms", -0.05),
     RewardTermCfg("stand_still", -0.2),
-    RewardTermCfg("feet_contact_number", 1.2),
-    RewardTermCfg("feet_distance", 0.2),
-    RewardTermCfg("base_height", 0.2),
-    RewardTermCfg("feet_clearance", 1.0),
+    RewardTermCfg("feet_contact_number", 0.35),
+    RewardTermCfg("feet_distance", 0.1),
+    RewardTermCfg("base_height", 0.5),
+    RewardTermCfg("feet_clearance", 0.25),
 )
 
 

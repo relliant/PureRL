@@ -120,7 +120,7 @@ def test_training_presets_use_humanoid_gym_inspired_locomotion_settings():
     flat_cfg = make_flat_env_cfg()
     assert flat_cfg.gait.cycle_time == 0.5
     assert flat_cfg.gait.command_threshold == 0.1
-    assert flat_cfg.gait.air_time_threshold == 0.25
+    assert flat_cfg.gait.air_time_threshold == 0.12
     assert flat_cfg.gait.clearance_sigma == 0.025
 
 

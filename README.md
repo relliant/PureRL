@@ -125,10 +125,10 @@ reward terms on top of the standard velocity-tracking and energy terms:
 
 | Term | Weight | Purpose |
 | --- | --- | --- |
-| `feet_contact_number` | 1.2 | Penalize foot contacts that do not match the open-loop gait phase |
-| `feet_distance` | 0.2 | Keep stance width inside `[foot_min_dist, foot_max_dist]` |
-| `base_height` | 0.2 | Hold the pelvis at `default_root_height` above the ground |
-| `feet_clearance` | 1.0 | Lift the swing foot to `target_feet_height` |
+| `feet_contact_number` | 0.35 | Penalize foot contacts that do not match the open-loop gait phase |
+| `feet_distance` | 0.1 | Keep stance width inside `[foot_min_dist, foot_max_dist]` |
+| `base_height` | 0.5 | Hold the pelvis at `default_root_height` above the ground |
+| `feet_clearance` | 0.25 | Lift the swing foot to `target_feet_height` |
 
 The existing `feet_air_time` term is also event-based: it pays only when a
 foot lands after a sufficiently long swing, rather than paying every policy
@@ -178,7 +178,10 @@ python scripts/rsl_rl/train.py \
 Checkpoints are written below `logs/rsl_rl/tienkung_flat` and
 `logs/rsl_rl/tienkung_rough`. Both training presets default to 4096 environments
 and online W&B logging in the `purerl` project using the currently authenticated
-account. Start with `--num-envs 2048` if 4096 exceeds available GPU memory.
+account. Flat training starts without external pushes or actuator-gain
+randomization so the policy can learn to stand and take regular steps; add those
+perturbations later through a custom environment YAML when robustness training
+is needed. Start with `--num-envs 2048` if 4096 exceeds available GPU memory.
 
 The default training presets are adapted from the XBot-L PPO configuration in
 [roboterax/humanoid-gym](https://github.com/roboterax/humanoid-gym): 24-second

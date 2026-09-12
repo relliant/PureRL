@@ -60,6 +60,8 @@ sin_pos = sin(2π · phase)
 |------|----|------|
 | `cycle_time` | **0.5 s** | 步态周期（步频 2 Hz）。天工腿长 0.8m 属中小型人形，比 G1 的 0.64 快。**微调范围 0.45–0.6** |
 | `contact_threshold` | 1.0 N | 脚接触力判定阈值 |
+| `command_threshold` | 0.1 m/s | 低于此速度时不强制交替摆脚 |
+| `air_time_threshold` | 0.12 s | 落脚奖励的最小有效腾空时间 |
 | `foot_min_dist` | 0.2 m | 步宽下限 |
 | `foot_max_dist` | 0.5 m | 步宽上限 |
 | `target_feet_height` | 0.06 m | 摆动脚目标离地高度 |
@@ -71,10 +73,10 @@ sin_pos = sin(2π · phase)
 
 | 奖励项 | 权重 | 作用 |
 |--------|------|------|
-| `feet_contact_number` | 1.2 | 移动时接触与步态相位对齐（+1 匹配 / -0.3 不匹配），**核心** |
-| `feet_distance` | 0.2 | 步宽约束（范围 0.5~1.0，惩罚交叉步/螃蟹步） |
-| `base_height` | 0.2 | 保持躯干在脚上方 0.89m（惩罚蹲姿/踮脚） |
-| `feet_clearance` | 1.0 | 平滑地奖励摆动脚抬到目标离地高度 |
+| `feet_contact_number` | 0.35 | 移动时接触与步态相位对齐（+1 匹配 / -0.3 不匹配），**核心** |
+| `feet_distance` | 0.1 | 步宽约束（范围 0.5~1.0，惩罚交叉步/螃蟹步） |
+| `base_height` | 0.5 | 保持躯干在脚上方 0.89m（惩罚蹲姿/踮脚） |
+| `feet_clearance` | 0.25 | 平滑地奖励摆动脚抬到目标离地高度 |
 | `feet_air_time` | 0.75 | 只在脚落地事件发生时奖励有效腾空时间 |
 
 ### 改动文件
@@ -89,7 +91,7 @@ sin_pos = sin(2π · phase)
 ## 6. 调参指南（按顺序）
 
 1. **`cycle_time`**：先观察步态是否稳定交替。拖沓/慢 → 调小（0.45）；急促/不稳 → 调大（0.55–0.6）。步态时钟只用于移动命令，站立命令不会被强制交替。
-2. **`feet_clearance`**：初期可先关掉（权重设为 0 或移除），只保留 `feet_contact_number + feet_distance + base_height`，训几百 iter 看步态是否变清晰；稳定后再加回，`target_feet_height` 从 0.06 微调。
+2. **`feet_clearance`**：当前 Flat 默认权重为 `0.25`，先保证站立稳定；仍有抬脚过激时可设为 0，稳定后再加回，`target_feet_height` 从 0.06 微调。
 3. **`base_height`**：已自动对齐真机站高（`default_root_height=0.89` + `foot_height_offset=0.0569`），无需手填。
 4. **warm-start**：可用旧 checkpoint 继续训（reward 项变了会有短暂适应期）。
 

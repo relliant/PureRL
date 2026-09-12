@@ -364,9 +364,11 @@ class TienKungLocomotionEnv(BaseVecEnv):
             "feet_clearance": lambda env: reward_terms.feet_clearance(
                 env.state.body_positions[:, env._foot_body_indices],
                 1.0 - env._get_gait_phase().float(),
+                env.commands,
                 target=env.cfg.gait.target_feet_height,
                 foot_offset=env.cfg.gait.foot_height_offset,
                 sigma=env.cfg.gait.clearance_sigma,
+                command_threshold=env.cfg.gait.command_threshold,
             ),
         }
         unknown = set(cfg.reward_weights()) - set(functions)

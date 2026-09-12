@@ -165,13 +165,23 @@ def base_height(
 def feet_clearance(
     foot_positions: Any,
     swing_mask: Any,
+    command: Any | None = None,
     *,
     target: float = 0.06,
     foot_offset: float = 0.0569,
     sigma: float = 0.025,
+    command_threshold: float = 0.1,
 ) -> Any:
-    """Smoothly reward the swing foot for reaching a safe clearance."""
+    """Smoothly reward the swing foot for reaching a safe clearance.
+
+    A phase-clock swing target is meaningful only for a moving command. When
+    the command is zero, both feet should remain planted for stability.
+    """
 
     foot_z = foot_positions[..., 2] - foot_offset
     reward = exp(-((foot_z - target) / sigma) ** 2)
-    return sum_axis(reward * swing_mask, axis=-1)
+    value = sum_axis(reward * swing_mask, axis=-1)
+    if command is None:
+        return value
+    moving = norm(command[..., :2]) > command_threshold
+    return value * moving
