@@ -9,6 +9,7 @@ import traceback
 
 from purerl.app import AppLauncherCfg, IsaacSimLauncher
 from purerl.config import make_rough_env_cfg
+from purerl.contracts import OBSERVATION_DIM
 from purerl.envs import TienKungLocomotionEnv
 from purerl.rl import RslRlVecEnvWrapper
 
@@ -46,7 +47,7 @@ def main() -> None:
         observations = wrapper.reset()
         _stage("wrapper-reset")
 
-        assert tuple(observations["policy"].shape) == (args.num_envs, 259)
+        assert tuple(observations["policy"].shape) == (args.num_envs, OBSERVATION_DIM)
         _check_contact_material_friction(env, torch)
         _stage("contact-material-friction-checked")
         assert tuple(env.backend.env_origins.shape) == (args.num_envs, 3)

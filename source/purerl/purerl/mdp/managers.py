@@ -96,6 +96,7 @@ class RewardTermSpec:
     func: TermCallable
     weight: float
     params: Mapping[str, Any] = field(default_factory=dict)
+    is_event: bool = False
 
 
 class RewardManager:
@@ -113,7 +114,8 @@ class RewardManager:
         total = None
         for term in self.terms:
             raw = term.func(context, **term.params)
-            weighted = raw * term.weight * self.dt
+            # Landing events already occur once; only rates are integrated.
+            weighted = raw * term.weight * (1.0 if term.is_event else self.dt)
             self.last_raw[term.name] = raw
             self.last_weighted[term.name] = weighted
             if term.name not in self.episode_sums:

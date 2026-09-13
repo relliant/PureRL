@@ -11,7 +11,9 @@ PureRL 为 20 自由度的天工2 Lite 人形机器人提供**独立于 Isaac La
 | `PureRL-Velocity-Rough-TienKung-v0` | 生成地形课程训练 |
 | `PureRL-Velocity-Rough-TienKung-Play-v0` | 生成地形评估 |
 
-所有任务都使用 20 维关节位置残差动作，以及相同的 259 维策略观测。最后 187 维是 pelvis-yaw 坐标系下的地形高度扫描，因此平地 checkpoint 可以直接加载到崎岖地形环境中。
+所有任务都使用 20 维关节位置残差动作，以及相同的 261 维策略观测。`[72:259]` 是 pelvis-yaw 坐标系下的地形高度扫描，`[259:261]` 是步态时钟的 sin/cos。当前版本的平地 checkpoint 可以直接加载到崎岖地形环境中。
+
+2026 年 9 月的训练修复需要从头训练。旧 259 维 checkpoint 在训练和评估加载时都会被拒绝，`--allow-unsafe-checkpoint` 也不会绕过维度检查。动作 buffer、碰撞隔离及奖励变更详见 [TRAINING_FIXES.md](TRAINING_FIXES.md)。
 
 ## 安装
 
@@ -91,7 +93,7 @@ python scripts/rsl_rl/play.py \
 
 `--agent-config` 仍可作为 `--runner-config` 的别名。配置解析顺序为：选定的 YAML preset → dataclass 类型转换与校验 → 显式 CLI 覆盖（如 `--num-envs`、`--device`、`--max-iterations`）。最终解析出的配置会写入本次运行的 `params/env.yaml` 和 `params/agent.yaml`。
 
-Play preset 会启用一个头部安装的 RTX 3D LiDAR，使用本地 `OS1_REV6_32ch10hz512res` 配置。导入的机器人会合并固定关节，因此当 `head` prim 存在时后端挂载到 `head`，否则按配置的头部偏移挂载到 `pelvis`。LiDAR 字段位于 `sensors.lidar` 下；`visuals.sky_color`、`sky_intensity`、`ground_color`、`terrain_color` 控制仿真背景和地形外观。训练 preset 保持 LiDAR 关闭，避免为大规摸向量化运行创建 RTX 渲染产品。LiDAR 点云**有意地不**追加到 259 维运动控制观测中，以保留既有 checkpoint 的兼容性。
+Play preset 会启用一个头部安装的 RTX 3D LiDAR，使用本地 `OS1_REV6_32ch10hz512res` 配置。导入的机器人会合并固定关节，因此当 `head` prim 存在时后端挂载到 `head`，否则按配置的头部偏移挂载到 `pelvis`。LiDAR 字段位于 `sensors.lidar` 下；`visuals.sky_color`、`sky_intensity`、`ground_color`、`terrain_color` 控制仿真背景和地形外观。训练 preset 保持 LiDAR 关闭，避免为大规摸向量化运行创建 RTX 渲染产品。LiDAR 点云不追加到 261 维运动控制观测中。
 
 ### 步态奖励
 

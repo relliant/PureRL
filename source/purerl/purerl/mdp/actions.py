@@ -33,11 +33,12 @@ class JointPositionActionManager:
                 f"Action shape {action.shape} does not match expected shape {self.default_joint_positions.shape}"
             )
         self.previous_action = self.action
-        self.action = (
-            action
-            if self.action_clip is None
-            else clip(action, -self.action_clip, self.action_clip)
-        )
+        # PPO keeps the caller's tensor until env.step() returns. Own our
+        # storage so auto-reset cannot overwrite its action/log-prob pair.
+        if self.action_clip is None:
+            self.action = action.clone() if type(action).__module__.startswith("torch") else action.copy()
+        else:
+            self.action = clip(action, -self.action_clip, self.action_clip)
         return self.default_joint_positions + self.scale * self.action
 
     def reset(self, env_ids: Any) -> None:

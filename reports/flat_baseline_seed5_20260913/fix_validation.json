@@ -1,0 +1,74 @@
+{
+  "date": "2026-09-13",
+  "unit_tests": {
+    "passed": 109,
+    "skipped": 1
+  },
+  "lint": "passed",
+  "physics": {
+    "steps": 100,
+    "environments": 3,
+    "max_pose_difference_m": 0.00017505884170532227,
+    "peak_contact_N": 1075.65380859375,
+    "peak_estimated_torque_Nm": 300.0
+  },
+  "training": {
+    "run": "/tmp/purerl-fix-validation/tienkung_flat/2026-09-13_11-31-03_flat_fix_smoke_seed5",
+    "environments": 32,
+    "iterations": 5,
+    "steps_per_env": 60,
+    "checkpoint": "/tmp/purerl-fix-validation/tienkung_flat/2026-09-13_11-31-03_flat_fix_smoke_seed5/model_4.pt",
+    "actor_input_dim": 261,
+    "critic_input_dim": 261,
+    "all_model_tensors_finite": true,
+    "metrics": {
+      "Loss/surrogate": [
+        0.011144695803523064,
+        -0.002896486548706889,
+        -0.007142943795770407,
+        -0.005409077741205692,
+        0.012233740650117397
+      ],
+      "Loss/value_function": [
+        1.9670695066452026,
+        1.3938639163970947,
+        1.32461678981781,
+        0.9104582667350769,
+        0.8344749808311462
+      ],
+      "Episode/dof_torques_l2": [
+        -0.12106800079345703,
+        -0.26178038120269775,
+        -0.2763456106185913,
+        -0.2670438885688782,
+        -0.2858603000640869
+      ],
+      "Episode/feet_air_time": [
+        0.003124997951090336,
+        0.008124998770654202,
+        0.007178567349910736,
+        0.002124999649822712,
+        0.0015625003725290298
+      ],
+      "Termination/bad_orientation": [
+        0.4166666865348816,
+        0.9666666984558105,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Termination/time_out": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "limitations": [
+    "Short smoke test; convergence not established.",
+    "NVML driver/library mismatch was logged but CUDA/PhysX checks succeeded.",
+    "Torque is a bounded PD estimate, not measured motor torque."
+  ]
+}

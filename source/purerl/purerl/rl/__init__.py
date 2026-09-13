@@ -4,6 +4,7 @@ from .checkpoint import (
     find_checkpoint,
     read_checkpoint_mean_noise_std,
     validate_checkpoint_noise_std,
+    validate_checkpoint_observation_dim,
 )
 from .export import export_feedforward_policy
 from .policy_noise import clamp_policy_noise, install_policy_noise_bounds
@@ -20,4 +21,5 @@ __all__ = [
     "read_checkpoint_mean_noise_std",
     "route_wandb_to_carb",
     "validate_checkpoint_noise_std",
+    "validate_checkpoint_observation_dim",
 ]

@@ -58,7 +58,7 @@ class IsaacSimBackend:
         self.lidar_prim_path: str | None = None
         self.lidar_mount_body: str | None = None
         self.contact_material_friction: Any = None
-        self.collision_filtering_mode = "spatial_separation"
+        self.collision_filtering_mode: str | None = None
         self._cfg: EnvCfg | None = None
         self._np: Any = None
         self._torch: Any = None
@@ -75,6 +75,10 @@ class IsaacSimBackend:
         self._num_bodies = 0
         self._default_joint_positions: Any = None
         self._previous_joint_velocities: Any = None
+        self._joint_position_targets: Any = None
+        self._joint_stiffness: Any = None
+        self._joint_damping: Any = None
+        self._joint_effort_limits: Any = None
         self._terrain_sampler: HeightFieldSampler | None = None
         self._terrain_tile_origins: Any = None
         self._terrain_num_rows = 0
@@ -142,14 +146,16 @@ class IsaacSimBackend:
                 "gpu_collision_stack_size": cfg.sim.gpu_collision_stack_size,
             },
         )
+        global_collision_paths = ["/World/terrain"]
         if cfg.task_kind == "flat":
-            self._world.scene.add_ground_plane(
+            ground = self._world.scene.add_ground_plane(
                 size=max(100.0, cfg.scene.env_spacing * self.num_envs**0.5 * 2.0),
                 static_friction=1.0,
                 dynamic_friction=1.0,
                 restitution=0.0,
                 color=np.asarray(cfg.visuals.ground_color, dtype=np.float32),
             )
+            global_collision_paths = [ground.prim_path]
 
         robot_usd = self._import_robot_usd(omni.kit.commands, cfg)
         stage = get_current_stage()
@@ -190,14 +196,15 @@ class IsaacSimBackend:
             replicate_physics=True,
             enable_env_ids=False,
         )
-        if terrain_assignment is not None:
-            cloner.filter_collisions(
-                self._find_physics_scene_path(stage, UsdPhysics),
-                "/World/collisionGroups",
-                env_paths,
-                global_paths=["/World/terrain"],
-            )
-            self.collision_filtering_mode = "collision_groups"
+        # Flat robots can walk beyond their spawn spacing. Isolate clones on
+        # both terrains, while retaining contacts with the shared ground.
+        cloner.filter_collisions(
+            self._find_physics_scene_path(stage, UsdPhysics),
+            "/World/collisionGroups",
+            env_paths,
+            global_paths=global_collision_paths,
+        )
+        self.collision_filtering_mode = "collision_groups"
         origin_array = np.asarray(origins, dtype=np.float32)
         self.env_origins = torch.as_tensor(origin_array, dtype=torch.float32, device=self.device)
         if terrain_assignment is None:
@@ -292,6 +299,7 @@ class IsaacSimBackend:
             cfg.robot.default_joint_positions, dtype=torch.float32, device=self.device
         ).repeat(self.num_envs, 1)
         self._previous_joint_velocities = torch.zeros_like(self._default_joint_positions)
+        self._joint_position_targets = self._default_joint_positions.clone()
         self.contact_material_friction = torch.zeros(
             (self.num_envs, 2), dtype=torch.float32, device=self.device
         )
@@ -327,6 +335,7 @@ class IsaacSimBackend:
         if tuple(targets.shape) != expected_shape:
             raise ValueError(f"Joint targets have shape {tuple(targets.shape)}, expected {expected_shape}")
         self._articulation.set_joint_position_targets(targets, joint_indices=self._joint_indices)
+        self._joint_position_targets.copy_(targets)
 
     def simulate(self, *, render: bool) -> None:
         self._require_initialized()
@@ -403,9 +412,7 @@ class IsaacSimBackend:
             joint_velocities - self._previous_joint_velocities
         ) / self._cfg.sim.step_dt
         self._previous_joint_velocities.copy_(joint_velocities)
-        joint_torques = self._articulation.get_applied_joint_efforts(
-            joint_indices=self._joint_indices, clone=True
-        )
+        joint_torques = self._estimate_drive_torques(joint_positions, joint_velocities)
         body_positions, _ = self._body_view.get_world_poses(clone=True)
         body_velocities = self._body_view.get_velocities(clone=True)
         net_contact_forces = self.get_net_contact_forces()
@@ -425,6 +432,17 @@ class IsaacSimBackend:
             body_angular_velocities=body_velocities[..., 3:],
             net_contact_forces=net_contact_forces,
         )
+
+    def _estimate_drive_torques(self, joint_positions: Any, joint_velocities: Any) -> Any:
+        """Bounded PD estimate for rewards, not a measured PhysX drive output.
+
+        get_applied_joint_efforts() only reads explicit effort commands, which
+        are zero for our implicit position drives. Use the configured gains,
+        including randomization, and the zero velocity target instead.
+        """
+        effort = self._joint_stiffness * (self._joint_position_targets - joint_positions)
+        effort -= self._joint_damping * joint_velocities
+        return self._torch.clamp(effort, min=-self._joint_effort_limits, max=self._joint_effort_limits)
 
     def get_net_contact_forces(self) -> Any:
         self._require_initialized()
@@ -547,6 +565,8 @@ class IsaacSimBackend:
             indices=env_ids.detach().cpu(),
             joint_indices=self._joint_indices.detach().cpu(),
         )
+        self._joint_stiffness[env_ids] = (stiffness * stiffness_scale.detach().cpu()).to(self.device)
+        self._joint_damping[env_ids] = (damping * damping_scale.detach().cpu()).to(self.device)
 
     def randomize_reset_state(
         self,
@@ -585,6 +605,7 @@ class IsaacSimBackend:
         self._articulation.set_joint_position_targets(
             joint_positions, indices=env_ids, joint_indices=self._joint_indices
         )
+        self._joint_position_targets[env_ids] = joint_positions
         self._previous_joint_velocities[env_ids] = 0.0
 
     def apply_root_wrench(self, env_ids: Any, forces: Any, torques: Any) -> None:
@@ -637,6 +658,7 @@ class IsaacSimBackend:
         self._articulation.set_joint_position_targets(
             joint_positions, indices=env_ids, joint_indices=self._joint_indices
         )
+        self._joint_position_targets[env_ids] = joint_positions
         self._previous_joint_velocities[env_ids] = 0.0
 
     def nonzero(self, mask: Any) -> Any:
@@ -729,13 +751,19 @@ class IsaacSimBackend:
                 num_envs, 1
             )
 
+        self._joint_stiffness = policy_vector(robot.stiffness)
+        self._joint_damping = policy_vector(robot.damping)
+        self._joint_effort_limits = policy_vector(robot.effort_limits)
         self._articulation.set_gains(
-            kps=policy_vector(robot.stiffness),
-            kds=policy_vector(robot.damping),
+            kps=self._joint_stiffness,
+            kds=self._joint_damping,
             joint_indices=self._joint_indices,
         )
+        self._articulation.set_joint_velocity_targets(
+            self._torch.zeros_like(self._joint_position_targets), joint_indices=self._joint_indices
+        )
         self._articulation.set_max_efforts(
-            policy_vector(robot.effort_limits), joint_indices=self._joint_indices
+            self._joint_effort_limits, joint_indices=self._joint_indices
         )
         self._articulation.set_max_joint_velocities(
             policy_vector(robot.velocity_limits), joint_indices=self._joint_indices

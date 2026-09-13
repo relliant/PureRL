@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import torch
 from purerl.config import make_flat_env_cfg
+from purerl.contracts import OBSERVATION_DIM, observation_slices
 from purerl.envs import TienKungLocomotionEnv
 from purerl.sim import ArticulationIndexMap
 
@@ -20,9 +21,7 @@ class FakeTienKungBackend:
         self.all_env_ids = torch.arange(self.num_envs)
         link_names = tuple(name.removesuffix("_joint") + "_link" for name in cfg.robot.joint_names)
         self.body_names = (cfg.robot.root_body_name, *link_names)
-        self.index_map = ArticulationIndexMap.resolve(
-            cfg.robot, cfg.robot.joint_names, self.body_names
-        )
+        self.index_map = ArticulationIndexMap.resolve(cfg.robot, cfg.robot.joint_names, self.body_names)
         self.joint_limits = torch.empty((self.num_envs, 20, 2))
         self.joint_limits[..., 0] = -3.0
         self.joint_limits[..., 1] = 3.0
@@ -135,12 +134,14 @@ def test_flat_environment_produces_stable_policy_contract():
     env = make_env(play=True)
     observations, _ = env.reset(seed=7)
 
-    assert observations["policy"].shape == (2, 259)
-    assert torch.allclose(observations["policy"][:, 72:], torch.full((2, 187), 0.39))
+    assert observations["policy"].shape == (2, OBSERVATION_DIM)
+    assert torch.allclose(
+        observations["policy"][:, observation_slices()["terrain_height_scan"]], torch.full((2, 187), 0.39)
+    )
     assert env.action_space.shape == (20,)
-    assert env.observation_space["policy"].shape == (259,)
+    assert env.observation_space["policy"].shape == (OBSERVATION_DIM,)
     assert env.backend.mass_delta.shape == (2,)
-    assert env.backend.stiffness_scale.shape == (2, 20)
+    assert not hasattr(env.backend, "stiffness_scale")  # Flat gain randomization is disabled.
     assert env.backend.static_friction.shape == (2,)
     assert (env.backend.static_friction >= env.cfg.randomization.static_friction_range[0]).all()
     assert (env.backend.static_friction <= env.cfg.randomization.static_friction_range[1]).all()
@@ -155,21 +156,54 @@ def test_training_observation_corruption_is_seeded_by_reset():
     second, _ = env.reset(seed=7)
 
     assert torch.equal(first["policy"], second["policy"])
-    assert not torch.allclose(first["policy"][:, 72:], torch.full((2, 187), 0.39))
-    assert (first["policy"][:, 72:] >= 0.33).all()
-    assert (first["policy"][:, 72:] <= 0.45).all()
+    assert not torch.allclose(
+        first["policy"][:, observation_slices()["terrain_height_scan"]], torch.full((2, 187), 0.39)
+    )
+    assert (first["policy"][:, observation_slices()["terrain_height_scan"]] >= 0.33).all()
+    assert (first["policy"][:, observation_slices()["terrain_height_scan"]] <= 0.45).all()
+
+
+def test_gait_clock_is_observable_and_matches_reward_support_after_selective_reset():
+    env = make_env()
+    env.episode_length_buf[:] = torch.tensor([5, 18])
+    phase_slice = observation_slices()["gait_phase"]
+    obs = env.get_observations()["policy"][:, phase_slice]
+    angle = 2 * torch.pi * torch.tensor([5, 18]) * env.step_dt / env.cfg.gait.cycle_time
+    expected = torch.stack((angle.sin(), angle.cos()), dim=-1)
+    assert torch.allclose(obs, expected)
+    assert torch.equal(env.get_observations()["policy"][:, phase_slice], obs)  # No noise on clock.
+    assert env._get_gait_phase().tolist() == [[True, False], [False, True]]
+
+    env._reset_idx(torch.tensor([0]))
+    reset_obs = env.get_observations()["policy"][:, phase_slice]
+    assert torch.allclose(reset_obs[0], torch.tensor([0.0, 1.0]))
+    assert torch.equal(reset_obs[1], obs[1])
+
+
+def test_landing_event_scale_is_wired_into_environment():
+    env = make_env(play=True)
+    env.command_manager.command[:] = torch.tensor([0.3, 0.0, 0.0])
+    env.contact_history.last_air_time[:] = 0.24
+    env.contact_history.contact_events[:] = False
+    env.contact_history.contact_events[0, 0] = True
+    env.termination_manager.compute(env)
+    env.reward_manager.compute(env)
+    assert torch.allclose(env.reward_manager.last_weighted["feet_air_time"], torch.tensor([0.09, 0.0]))
+    env._clear_step_events()
+    env.reward_manager.compute(env)
+    assert torch.count_nonzero(env.reward_manager.last_weighted["feet_air_time"]) == 0
 
 
 def test_flat_environment_runs_manager_lifecycle():
     env = make_env()
     observations, rewards, terminated, truncated, info = env.step(torch.zeros((2, 20)))
 
-    assert observations["policy"].shape == (2, 259)
+    assert observations["policy"].shape == (2, OBSERVATION_DIM)
     assert rewards.shape == terminated.shape == truncated.shape == (2,)
     assert torch.isfinite(rewards).all()
     assert not terminated.any()
     assert not truncated.any()
-    assert info["terminal_observation"].shape == (0, 259)
+    assert info["terminal_observation"].shape == (0, OBSERVATION_DIM)
     assert torch.allclose(
         env.contact_history.current_air_time,
         torch.full((2, 2), env.cfg.sim.dt * env.cfg.sim.decimation),

@@ -96,6 +96,8 @@ class BaseVecEnv:
         done_env_ids = self.backend.nonzero(done)
         terminal_observation = self.observation_manager.compute(self)[done_env_ids]
         episode = self.reward_manager.reset(done_env_ids)
+        for name, values in self.termination_manager.last_values.items():
+            episode[f"Termination/{name}"] = values[done_env_ids] * 1.0
         self._apply_curriculum(done_env_ids)
         self._reset_idx(done_env_ids, reset_rewards=False)
         self._update_commands()

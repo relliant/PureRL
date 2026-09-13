@@ -4,13 +4,15 @@ from pathlib import Path
 import numpy as np
 import torch
 from purerl.config import JOINT_NAMES, make_flat_env_cfg, make_rough_env_cfg
-from purerl.contracts import ACTION_DIM, OBSERVATION_DIM, OBSERVATION_TERMS, STEP_DT
+from purerl.contracts import ACTION_DIM, OBSERVATION_TERMS, STEP_DT, observation_slices
 from purerl.envs.tienkung_locomotion import _quat_rotate_inverse, _yaw_from_quaternion
 from purerl.mdp import rewards
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 METADATA_PATH = FIXTURE_DIR / "isaaclab_legacy_reference.json"
 ARRAYS_PATH = FIXTURE_DIR / "isaaclab_legacy_reference.npz"
+# The frozen Isaac Lab trajectory predates the appended sin/cos clock.
+LEGACY_OBSERVATION_DIM = observation_slices()["gait_phase"].start
 
 
 def test_legacy_fixture_identifies_exact_source_revisions():
@@ -30,7 +32,7 @@ def test_legacy_trajectory_contains_term_level_numeric_samples():
     metadata = json.loads(METADATA_PATH.read_text(encoding="utf-8"))
     with np.load(ARRAYS_PATH) as fixture:
         assert fixture["flat_action"].shape == (16, 4, ACTION_DIM)
-        assert fixture["flat_observation"].shape == (17, 4, OBSERVATION_DIM)
+        assert fixture["flat_observation"].shape == (17, 4, LEGACY_OBSERVATION_DIM)
         assert fixture["flat_heading_target"].shape == (17, 4)
         np.testing.assert_array_equal(
             fixture["flat_heading_target"],
@@ -57,7 +59,7 @@ def test_legacy_schema_and_weights_match_current_contract():
     rough = make_rough_env_cfg()
 
     assert metadata["observation_term_shapes"] == [
-        [term.dimension] for term in OBSERVATION_TERMS
+        [term.dimension] for term in OBSERVATION_TERMS if term.name != "gait_phase"
     ]
     # The frozen simulator fixture predates the PureRL gait terms. Preserve
     # its baseline contract while allowing current configs to add rewards.
@@ -95,7 +97,7 @@ def test_legacy_rough_fixture_covers_origins_and_assignment():
     metadata = json.loads(METADATA_PATH.read_text(encoding="utf-8"))
     override = metadata["rough_assignment_override"]
     with np.load(ARRAYS_PATH) as fixture:
-        assert fixture["rough_observation"].shape == (override["num_envs"], OBSERVATION_DIM)
+        assert fixture["rough_observation"].shape == (override["num_envs"], LEGACY_OBSERVATION_DIM)
         assert fixture["rough_terrain_origins"].shape == (
             override["num_rows"],
             override["num_cols"],

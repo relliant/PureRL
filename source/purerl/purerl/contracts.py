@@ -37,6 +37,7 @@ OBSERVATION_TERMS = (
     ObservationTerm("joint_velocities", 20),
     ObservationTerm("previous_action", 20),
     ObservationTerm("terrain_height_scan", 187),
+    ObservationTerm("gait_phase", 2),  # sin/cos of the reward clock, without observation noise
 )
 OBSERVATION_DIM = sum(term.dimension for term in OBSERVATION_TERMS)
 

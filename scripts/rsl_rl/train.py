@@ -21,6 +21,7 @@ from purerl.rl import (
     install_policy_noise_bounds,
     route_wandb_to_carb,
     validate_checkpoint_noise_std,
+    validate_checkpoint_observation_dim,
 )
 
 
@@ -107,6 +108,8 @@ def main() -> None:
 
         log_root = Path(args.log_root).expanduser().resolve() / runner_cfg.experiment_name
         checkpoint = _resolve_checkpoint(args, log_root, runner_cfg)
+        if checkpoint is not None:
+            validate_checkpoint_observation_dim(checkpoint, expected=env_cfg.observations.dimension)
         if checkpoint is not None and not args.allow_unsafe_checkpoint:
             mean_std = validate_checkpoint_noise_std(
                 checkpoint, maximum=runner_cfg.max_checkpoint_noise_std

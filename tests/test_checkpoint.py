@@ -6,7 +6,38 @@ from purerl.rl import (
     find_checkpoint,
     read_checkpoint_mean_noise_std,
     validate_checkpoint_noise_std,
+    validate_checkpoint_observation_dim,
 )
+
+
+@pytest.mark.parametrize("actor_dim,critic_dim", [(259, 259), (261, 259)])
+def test_checkpoint_rejects_legacy_observation_layout(tmp_path, actor_dim, critic_dim):
+    checkpoint = tmp_path / "legacy.pt"
+    torch.save(
+        {
+            "model_state_dict": {
+                "actor.0.weight": torch.zeros(8, actor_dim),
+                "critic.0.weight": torch.zeros(8, critic_dim),
+            }
+        },
+        checkpoint,
+    )
+    with pytest.raises(ValueError, match="Start a fresh training run"):
+        validate_checkpoint_observation_dim(checkpoint, expected=261)
+
+
+def test_checkpoint_accepts_gait_clock_layout(tmp_path):
+    checkpoint = tmp_path / "current.pt"
+    torch.save(
+        {
+            "model_state_dict": {
+                "actor.0.weight": torch.zeros(8, 261),
+                "critic.0.weight": torch.zeros(8, 261),
+            }
+        },
+        checkpoint,
+    )
+    validate_checkpoint_observation_dim(checkpoint, expected=261)
 
 
 def test_find_checkpoint_selects_latest_matching_run_and_file(tmp_path: Path):

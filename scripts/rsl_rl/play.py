@@ -19,6 +19,7 @@ from purerl.rl import (
     export_feedforward_policy,
     find_checkpoint,
     read_checkpoint_mean_noise_std,
+    validate_checkpoint_observation_dim,
 )
 
 
@@ -62,6 +63,7 @@ def main() -> None:
         from rsl_rl.runners import OnPolicyRunner
 
         checkpoint = _resolve_checkpoint(args, runner_cfg)
+        validate_checkpoint_observation_dim(checkpoint, expected=env_cfg.observations.dimension)
         mean_std = read_checkpoint_mean_noise_std(checkpoint)
         if mean_std is not None and mean_std > runner_cfg.max_checkpoint_noise_std:
             print(

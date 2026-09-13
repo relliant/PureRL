@@ -9,6 +9,7 @@ import traceback
 
 from purerl.app import AppLauncherCfg, IsaacSimLauncher
 from purerl.config import make_flat_env_cfg
+from purerl.contracts import OBSERVATION_DIM
 from purerl.envs import TienKungLocomotionEnv
 from purerl.rl import RslRlVecEnvWrapper
 
@@ -38,10 +39,11 @@ def main() -> None:
         )
         env = TienKungLocomotionEnv(cfg=cfg)
         _stage("environment-created")
-        wrapper = RslRlVecEnvWrapper(env, clip_actions=1.0)
+        assert env.backend.collision_filtering_mode == "collision_groups"
+        wrapper = RslRlVecEnvWrapper(env)
         observations = wrapper.reset()
         _stage("wrapper-reset")
-        assert tuple(observations["policy"].shape) == (args.num_envs, 259)
+        assert tuple(observations["policy"].shape) == (args.num_envs, OBSERVATION_DIM)
         _check_contact_material_friction(env, torch)
         _stage("contact-material-friction-checked")
 
@@ -50,8 +52,10 @@ def main() -> None:
                 actions = 2.0 * torch.rand((args.num_envs, 20), device=args.device) - 1.0
             else:
                 actions = torch.zeros((args.num_envs, 20), device=args.device)
+            executed_actions = actions.clone()
             observations, rewards, dones, extras = wrapper.step(actions)
-            assert tuple(observations["policy"].shape) == (args.num_envs, 259)
+            assert torch.equal(actions, executed_actions)
+            assert tuple(observations["policy"].shape) == (args.num_envs, OBSERVATION_DIM)
             assert torch.isfinite(observations["policy"]).all()
             assert torch.isfinite(rewards).all()
             assert tuple(dones.shape) == (args.num_envs,)

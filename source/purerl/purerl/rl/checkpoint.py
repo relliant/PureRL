@@ -78,6 +78,24 @@ def validate_checkpoint_noise_std(
     return mean_std
 
 
+def validate_checkpoint_observation_dim(checkpoint: str | Path, *, expected: int) -> None:
+    """Reject policies trained before the gait clock became observable."""
+    import torch
+
+    path = Path(checkpoint).expanduser().resolve()
+    state = torch.load(path, map_location="cpu", weights_only=True).get("model_state_dict", {})
+    for network in ("actor", "critic"):
+        weight = state.get(f"{network}.0.weight")
+        if weight is None or weight.ndim != 2:
+            raise ValueError(f"Checkpoint has no supported feed-forward {network} input layer: {path}")
+        if weight.shape[1] != expected:
+            raise ValueError(
+                f"Checkpoint {network} expects {weight.shape[1]} observations, but this environment "
+                f"requires {expected}, including the gait sin/cos clock. "
+                f"Start a fresh training run; legacy 259-dimensional checkpoints cannot be resumed: {path}"
+            )
+
+
 def _natural_key(value: str) -> tuple[tuple[int, int | str], ...]:
     return tuple(
         (0, int(part)) if part.isdigit() else (1, part)

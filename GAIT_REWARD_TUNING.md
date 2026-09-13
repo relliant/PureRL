@@ -4,6 +4,8 @@
 > 参考开源实现：[humanoid-gym](https://github.com/roboterax/humanoid-gym)（Unitree G1/H1 的步态奖励设计）。
 > 记录日期：2026-08-15。
 
+2026-09-13 修订：策略与 critic 观测追加无噪声的 gait sin/cos，维度由 259 变为 261；旧 checkpoint 需从头重训。`feet_air_time` 配置为 `is_event: true`，只在落脚时支付一次，不再额外乘策略步长。其余持续奖励仍乘 dt。详见 [TRAINING_FIXES.md](TRAINING_FIXES.md)。
+
 ---
 
 ## 1. 背景
@@ -93,7 +95,7 @@ sin_pos = sin(2π · phase)
 1. **`cycle_time`**：先观察步态是否稳定交替。拖沓/慢 → 调小（0.45）；急促/不稳 → 调大（0.55–0.6）。步态时钟只用于移动命令，站立命令不会被强制交替。
 2. **`feet_clearance`**：当前 Flat 默认权重为 `0.25`，先保证站立稳定；仍有抬脚过激时可设为 0，稳定后再加回，`target_feet_height` 从 0.06 微调。
 3. **`base_height`**：已自动对齐真机站高（`default_root_height=0.89` + `foot_height_offset=0.0569`），无需手填。
-4. **warm-start**：可用旧 checkpoint 继续训（reward 项变了会有短暂适应期）。
+4. **warm-start**：仅适用于当前 261 维观测契约下训练的 checkpoint；旧 259 维模型不能直接续训。
 
 ---
 

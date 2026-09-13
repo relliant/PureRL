@@ -6,6 +6,7 @@ torch = pytest.importorskip("torch")
 TensorDict = pytest.importorskip("tensordict").TensorDict
 
 from purerl.config import make_flat_runner_cfg  # noqa: E402
+from purerl.contracts import OBSERVATION_DIM  # noqa: E402
 from purerl.rl import RslRlVecEnvWrapper  # noqa: E402
 
 
@@ -19,7 +20,7 @@ class TorchEnv:
         self.cfg = SimpleNamespace(name="test")
 
     def get_observations(self):
-        return {"policy": torch.zeros((self.num_envs, 259))}
+        return {"policy": torch.zeros((self.num_envs, OBSERVATION_DIM))}
 
     def reset(self):
         return self.get_observations(), {}
@@ -43,7 +44,7 @@ def test_wrapper_returns_rsl_rl_3_tensor_dict():
     observations = wrapper.get_observations()
     assert isinstance(observations, TensorDict)
     assert observations.batch_size == torch.Size([2])
-    assert observations["policy"].shape == (2, 259)
+    assert observations["policy"].shape == (2, OBSERVATION_DIM)
 
 
 def test_local_runner_config_constructs_rsl_rl_3_runner():
@@ -54,5 +55,46 @@ def test_local_runner_config_constructs_rsl_rl_3_runner():
     runner = OnPolicyRunner(wrapper, cfg, log_dir=None, device="cpu")
 
     assert runner.env is wrapper
-    assert runner.alg.policy.actor[0].in_features == 259
+    assert runner.alg.policy.actor[0].in_features == OBSERVATION_DIM
     assert runner.alg.policy.actor[-1].out_features == 20
+
+
+@pytest.mark.parametrize("reason", ["terminated", "truncated"])
+def test_auto_reset_preserves_ppo_actions_and_old_log_prob(reason):
+    from rsl_rl.algorithms import PPO
+    from rsl_rl.modules import ActorCritic
+    from test_tienkung_env import make_env
+
+    env = make_env(play=True)
+    wrapped = RslRlVecEnvWrapper(env)
+    obs = wrapped.get_observations()
+    torch.manual_seed(5)
+    policy = ActorCritic(
+        obs,
+        {"policy": ["policy"], "critic": ["policy"]},
+        20,
+        actor_hidden_dims=[16],
+        critic_hidden_dims=[16],
+        actor_obs_normalization=False,
+        critic_obs_normalization=False,
+    )
+    ppo = PPO(policy, device="cpu")
+    ppo.init_storage("rl", env.num_envs, 1, obs, [20])
+    if reason == "terminated":
+        env.state.net_contact_forces[0, env._root_body_index, 2] = 20.0
+    else:
+        env.episode_length_buf[0] = env.max_episode_length - 1
+
+    with torch.inference_mode():
+        actions = ppo.act(obs)
+        executed = actions.clone()
+        next_obs, reward, done, extras = wrapped.step(actions)
+        assert done.tolist() == [True, False]
+        assert bool(extras["time_outs"][0]) == (reason == "truncated")
+        ppo.process_env_step(next_obs, reward, done, extras)
+        assert torch.equal(actions, executed)
+        assert torch.equal(ppo.storage.actions[0], executed)
+        policy.act(obs)
+        log_prob = policy.get_actions_log_prob(ppo.storage.actions[0])
+        ratio = (log_prob - ppo.storage.actions_log_prob[0, :, 0]).exp()
+        assert torch.equal(ratio, torch.ones(env.num_envs))

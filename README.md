@@ -14,9 +14,15 @@ Python package is required.
 | `PureRL-Velocity-Rough-TienKung-v0` | Generated-terrain curriculum training |
 | `PureRL-Velocity-Rough-TienKung-Play-v0` | Generated-terrain evaluation |
 
-All tasks use 20 joint-position residual actions and the same 259-dimensional
-policy observation. The final 187 values are a pelvis-yaw-frame terrain height
-scan, so flat checkpoints can be loaded directly into rough environments.
+All tasks use 20 joint-position residual actions and the same 261-dimensional
+policy observation. Values `[72:259]` are a pelvis-yaw-frame terrain height
+scan; `[259:261]` contain the gait clock's sine and cosine. Current Flat
+checkpoints can be loaded directly into Rough environments.
+
+The September 2026 training fixes require a fresh run. Legacy 259-dimensional
+checkpoints are rejected by training and evaluation, including with
+`--allow-unsafe-checkpoint`. See [TRAINING_FIXES.md](TRAINING_FIXES.md) for the
+action-buffer, collision-isolation and reward changes and their verification.
 
 ## Installation
 
@@ -116,7 +122,7 @@ the backend mounts to `head` when that prim exists and otherwise mounts to
 `terrain_color` control the simulation background and terrain appearance.
 Training presets keep LiDAR disabled to avoid creating an RTX render product
 for large vectorized runs. LiDAR points are intentionally not appended to the
-259-dimensional locomotion observation, preserving existing checkpoints.
+261-dimensional locomotion observation.
 
 ### Gait Rewards
 
@@ -134,6 +140,10 @@ The existing `feet_air_time` term is also event-based: it pays only when a
 foot lands after a sufficiently long swing, rather than paying every policy
 step while the foot remains planted. Contact transitions are latched over all
 physics substeps, so a landing is not lost when the policy decimation is four.
+Reward terms marked `is_event: true` are paid without an extra timestep factor.
+Other terms remain rates integrated with `step_dt`; the termination penalty
+therefore remains `-200 * 0.02 = -4` per failure. The sin/cos gait clock is
+visible to both actor and critic and receives no observation noise.
 The alternating-contact and clearance terms are disabled for near-zero
 velocity commands, allowing the standing-command environments to keep both
 feet planted.
@@ -141,9 +151,8 @@ feet planted.
 Gait parameters live under the `gait:` block of each environment YAML and are
 TienKung-specific (leg length `0.8 m`, foot sole offset `0.0569 m`). See
 [`GAIT_REWARD_TUNING.md`](GAIT_REWARD_TUNING.md) for the measured values and
-the tuning procedure. These reward changes affect training only; an existing
-checkpoint does not change until it is retrained or resumed with the updated
-environment configuration. Start a fresh Flat run when comparing gait quality:
+the tuning procedure. Start a fresh Flat run with the current observation
+contract when comparing gait quality:
 
 ```bash
 python scripts/rsl_rl/train.py \

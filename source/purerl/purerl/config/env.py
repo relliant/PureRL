@@ -161,6 +161,7 @@ class RandomizationCfg(ConfigMixin):
 class RewardTermCfg(ConfigMixin):
     name: str
     weight: float
+    is_event: bool = False
 
 
 @dataclass(frozen=True)
@@ -187,7 +188,7 @@ ROUGH_REWARD_TERMS = (
     RewardTermCfg("dof_torques_l2", -1.0e-6),
     RewardTermCfg("dof_acc_l2", -2.5e-7),
     RewardTermCfg("action_rate_l2", -0.01),
-    RewardTermCfg("feet_air_time", 0.5),
+    RewardTermCfg("feet_air_time", 0.5, is_event=True),
     RewardTermCfg("feet_slide", -0.25),
     RewardTermCfg("undesired_contacts", -1.0),
     RewardTermCfg("dof_pos_limits", -1.0),

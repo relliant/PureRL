@@ -23,6 +23,7 @@ def build_policy_observation(
     joint_velocity: Any,
     previous_action: Any,
     terrain_height_scan: Any,
+    gait_phase: Any,
 ) -> Any:
     observation = concatenate(
         (
@@ -34,6 +35,7 @@ def build_policy_observation(
             joint_velocity,
             previous_action,
             terrain_height_scan,
+            gait_phase,
         ),
         axis=-1,
     )

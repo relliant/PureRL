@@ -223,6 +223,7 @@ class TienKungLocomotionEnv(BaseVecEnv):
                     noise=noise.terrain_height_scan,
                     clip=cfg.observations.height_scan_clip,
                 ),
+                ObservationTermSpec("gait_phase", lambda env: env.gait_phase),
             ),
             expected_dimension=OBSERVATION_DIM,
             enable_corruption=cfg.observations.enable_corruption,
@@ -254,10 +255,16 @@ class TienKungLocomotionEnv(BaseVecEnv):
             )
         )
 
+    @property
+    def gait_phase(self) -> torch.Tensor:
+        """Observable sin/cos clock shared by the actor, critic and rewards."""
+        phase = self.episode_length_buf * self.step_dt / self.cfg.gait.cycle_time
+        angle = 2 * torch.pi * phase
+        return torch.stack((torch.sin(angle), torch.cos(angle)), dim=-1)
+
     def _get_gait_phase(self) -> Any:
         """开环步态相位 -> stance mask [num_envs, 2]（1=支撑, 0=摆动，两脚反相）。"""
-        phase = self.episode_length_buf * self.step_dt / self.cfg.gait.cycle_time
-        sin_pos = torch.sin(2 * torch.pi * phase)
+        sin_pos = self.gait_phase[:, 0]
         stance_mask = torch.zeros((self.num_envs, 2), dtype=torch.bool, device=self.device)
         stance_mask[:, 0] = sin_pos >= 0
         stance_mask[:, 1] = sin_pos < 0
@@ -375,7 +382,8 @@ class TienKungLocomotionEnv(BaseVecEnv):
         if unknown:
             raise ValueError("Unsupported reward terms: " + ", ".join(sorted(unknown)))
         specs = tuple(
-            RewardTermSpec(term.name, functions[term.name], term.weight) for term in cfg.rewards
+            RewardTermSpec(term.name, functions[term.name], term.weight, is_event=term.is_event)
+            for term in cfg.rewards
         )
         return RewardManager(specs, dt=cfg.sim.step_dt)
 

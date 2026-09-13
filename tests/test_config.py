@@ -122,6 +122,9 @@ def test_training_presets_use_humanoid_gym_inspired_locomotion_settings():
     assert flat_cfg.gait.command_threshold == 0.1
     assert flat_cfg.gait.air_time_threshold == 0.12
     assert flat_cfg.gait.clearance_sigma == 0.025
+    for cfg in (flat_cfg, rough_cfg):
+        assert next(term for term in cfg.rewards if term.name == "feet_air_time").is_event
+        assert not next(term for term in cfg.rewards if term.name == "termination_penalty").is_event
 
 
 def test_invalid_observation_dimension_is_rejected():

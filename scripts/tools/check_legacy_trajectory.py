@@ -90,6 +90,9 @@ def main() -> None:
         for name in (*_STATE_FIELDS, "observation", "reward", "reward_terms_per_second"):
             current = stacked[name]
             reference = fixture[f"flat_{name}"]
+            if name == "observation":
+                # Preserve the original numerical fixture; it has no gait clock.
+                current = current[..., :reference.shape[-1]]
             if name == "root_quaternion":
                 current = _align_quaternion_sign(current, reference)
             metrics[name] = _error_metrics(current, reference)

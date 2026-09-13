@@ -1,6 +1,7 @@
 {
   "baseline_kind": "purerl_humanoid_gym_inspired",
   "simulator_reference_available": true,
+  "simulator_reference_scope": "legacy 259-dimensional prefix; current gait phase has no frozen simulator reference",
   "simulator_reference_fixture": "isaaclab_legacy_reference.npz",
   "action": {
     "dimension": 20,
@@ -13,7 +14,7 @@
     "episode_length_s": 24.0
   },
   "observation": {
-    "dimension": 259,
+    "dimension": 261,
     "terms": [
       ["base_linear_velocity", 0, 3],
       ["base_angular_velocity", 3, 6],
@@ -22,7 +23,8 @@
       ["relative_joint_positions", 12, 32],
       ["joint_velocities", 32, 52],
       ["previous_action", 52, 72],
-      ["terrain_height_scan", 72, 259]
+      ["terrain_height_scan", 72, 259],
+      ["gait_phase", 259, 261]
     ]
   },
   "root_body": "pelvis",

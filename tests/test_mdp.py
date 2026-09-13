@@ -60,14 +60,10 @@ def test_velocity_command_heading_controller_wraps_clips_and_stands():
         standing_env_ratio=0.0,
         ranges=VelocityRangesCfg(ang_vel_z=(-1.0, 1.0)),
     )
-    manager = VelocityCommandManager(
-        cfg, num_envs=3, device="cpu", step_dt=0.02, seed=7
-    )
+    manager = VelocityCommandManager(cfg, num_envs=3, device="cpu", step_dt=0.02, seed=7)
     manager.reset(np.arange(3))
     sampled_yaw_rate = manager.command[:, 2].clone()
-    manager.heading_target.copy_(
-        manager._torch.tensor([-3.0, 3.0, 2.5], dtype=manager.command.dtype)
-    )
+    manager.heading_target.copy_(manager._torch.tensor([-3.0, 3.0, 2.5], dtype=manager.command.dtype))
     manager.is_standing_env[2] = True
 
     assert manager.command[:, 2].equal(sampled_yaw_rate)
@@ -84,9 +80,7 @@ def test_velocity_command_can_mix_direct_yaw_and_heading_control():
         heading_env_ratio=0.0,
         standing_env_ratio=0.0,
     )
-    manager = VelocityCommandManager(
-        cfg, num_envs=2, device="cpu", step_dt=0.02, seed=11
-    )
+    manager = VelocityCommandManager(cfg, num_envs=2, device="cpu", step_dt=0.02, seed=11)
     manager.reset(np.arange(2))
     sampled_yaw_rate = manager.command[:, 2].clone()
 
@@ -116,10 +110,49 @@ def test_policy_observation_order_and_dimension():
         joint_velocity=values[5],
         previous_action=values[6],
         terrain_height_scan=values[7],
+        gait_phase=np.tile([0.0, 1.0], (batch, 1)),
     )
 
     assert observation.shape == (batch, OBSERVATION_DIM)
-    assert np.all(observation[:, 72:] == 8.0)
+    assert np.all(observation[:, 72:259] == 8.0)
+    np.testing.assert_array_equal(observation[:, 259:], np.tile([0.0, 1.0], (batch, 1)))
+
+
+@pytest.mark.parametrize("backend", ["numpy", "torch"])
+@pytest.mark.parametrize("clip_value", [None, 1.0])
+def test_action_reset_never_mutates_caller_or_previous_rollout(backend, clip_value):
+    arrays = np if backend == "numpy" else pytest.importorskip("torch")
+    defaults = arrays.zeros((2, ACTION_DIM))
+    first = arrays.full((2, ACTION_DIM), 0.7)
+    second = arrays.full((2, ACTION_DIM), -0.4)
+    manager = JointPositionActionManager(defaults, action_clip=clip_value)
+    manager.process(first)
+    manager.process(second)
+    manager.reset([0])
+    assert bool((first == 0.7).all())
+    assert bool((second == -0.4).all())
+    assert bool((manager.action[0] == 0).all())
+    assert bool((manager.previous_action[0] == 0).all())
+    assert bool((manager.action[1] == -0.4).all())
+    assert bool((manager.previous_action[1] == 0.7).all())
+
+
+@pytest.mark.parametrize("dt", [0.01, 0.02, 0.04])
+def test_landing_reward_is_paid_once_independent_of_step_dt(dt):
+    context = SimpleNamespace(landing=np.asarray([0.12, 0.0]), rate=np.asarray([1.0, 1.0]))
+    manager = RewardManager(
+        (
+            RewardTermSpec("landing", lambda ctx: ctx.landing, weight=0.75, is_event=True),
+            RewardTermSpec("rate", lambda ctx: ctx.rate, weight=2.0),
+        ),
+        dt=dt,
+    )
+    manager.compute(context)
+    context.landing[:] = 0.0
+    manager.compute(context)
+    completed = manager.reset(np.asarray([0, 1]))
+    np.testing.assert_allclose(completed["landing"], [0.09, 0.0])
+    np.testing.assert_allclose(completed["rate"], [4 * dt, 4 * dt])
 
 
 def test_observation_manager_applies_seeded_noise_and_clipping():
@@ -178,9 +211,7 @@ def test_termination_manager_keeps_timeouts_separate():
     )
     manager = TerminationManager(
         (
-            TerminationTermSpec(
-                "time_out", lambda ctx: time_out(ctx.episode_length, 10), time_out=True
-            ),
+            TerminationTermSpec("time_out", lambda ctx: time_out(ctx.episode_length, 10), time_out=True),
             TerminationTermSpec("bad_orientation", lambda ctx: bad_orientation(ctx.gravity)),
         )
     )
@@ -213,9 +244,7 @@ def test_air_time_reward_pays_only_on_latched_landing_events():
     contact_events = np.asarray([[True, False], [False, False]])
     command = np.asarray([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
 
-    reward = feet_air_time_on_contact(
-        last_air_time, contact_events, command, threshold=0.25
-    )
+    reward = feet_air_time_on_contact(last_air_time, contact_events, command, threshold=0.25)
 
     assert reward == pytest.approx([0.15, 0.0])
 
@@ -250,9 +279,7 @@ def test_swing_clearance_ignores_standing_commands():
     foot_positions = np.asarray([[[0.1169, 0.0, 0.1169], [0.0569, 0.0, 0.0569]]])
     swing = np.asarray([[1.0, 0.0]])
 
-    reward = feet_clearance(
-        foot_positions, swing, np.asarray([[0.0, 0.0, 0.0]]), target=0.06
-    )
+    reward = feet_clearance(foot_positions, swing, np.asarray([[0.0, 0.0, 0.0]]), target=0.06)
 
     assert reward == pytest.approx([0.0])
 
