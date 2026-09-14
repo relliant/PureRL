@@ -1,0 +1,85 @@
+{
+  "warmup_excluded_s": 2.0,
+  "valid_env_seconds": 173.26,
+  "contact_at_50hz": {
+    "double_support_fraction": 0.69825695486552,
+    "single_support_fraction": 0.2519912270576013,
+    "flight_fraction": 0.04975181807687868
+  },
+  "contact_at_200hz": {
+    "double_support_fraction": 0.6428942807625649,
+    "single_support_fraction": 0.22180820335066437,
+    "flight_fraction": 0.13529751588677066
+  },
+  "correct_support_during_single_support_target_fraction": 0.22457321471507574,
+  "foot_origin_height_minus_offset_m_percentiles_5_50_95": [
+    [
+      8.890256285667419e-05,
+      9.296461939811707e-05
+    ],
+    [
+      9.906291961669922e-05,
+      0.0001569502055644989
+    ],
+    [
+      0.004669951647520065,
+      0.0033245008438825595
+    ]
+  ],
+  "foot_height_above_3cm_fraction": 0.0,
+  "root_height_m_percentiles_5_50_95": [
+    0.8938466727733612,
+    0.8984434008598328,
+    0.9023796081542969
+  ],
+  "mean_velocity_yaw": [
+    0.24142540991306305,
+    -0.008066625334322453,
+    0.025645194575190544
+  ],
+  "xy_velocity_rmse_mps": 0.26533228158950806,
+  "body_vertical_velocity_rms_mps": 0.2109668254852295,
+  "landing_air_time_s_percentiles_50_95_99": [
+    0.02499999850988388,
+    0.04999999329447746,
+    0.04999999329447746
+  ],
+  "landings_with_air_time_over_threshold_fraction": 0.0,
+  "simultaneous_5ms_landings_fraction": 0.12443618997081454,
+  "mean_weighted_reward_per_second": {
+    "termination_penalty": 0.0,
+    "track_lin_vel_xy_exp": 1.1388192884624004,
+    "track_ang_vel_z_exp": 0.7412923499941826,
+    "lin_vel_z_l2": -0.022253500355873257,
+    "ang_vel_xy_l2": -0.05446535651572049,
+    "flat_orientation_l2": -0.07751619559712708,
+    "dof_torques_l2": -0.13902875361964107,
+    "dof_acc_l2": -0.016683041758369654,
+    "action_rate_l2": -0.0640661921352148,
+    "feet_air_time": 0.0,
+    "feet_slide": -0.08435380877926946,
+    "undesired_contacts": -0.0010389010640210472,
+    "dof_pos_limits": 0.0,
+    "joint_deviation_hip": -0.03130621917080134,
+    "joint_deviation_arms": -0.11463382979854941,
+    "stand_still": 0.0,
+    "feet_contact_number": 0.17234358238056302,
+    "feet_distance": 0.09922151220962405,
+    "base_height": 0.4878638777881861,
+    "feet_clearance": 0.0010154094525205437
+  },
+  "termination_counts": {
+    "time_out": 5,
+    "base_contact": 2,
+    "bad_orientation": 2
+  },
+  "checkpoint": "/home/sia_luo/Project/PureRL/logs/rsl_rl/tienkung_flat/2026-09-13_11-35-53_flat_baseline/model_10000.pt",
+  "num_envs": 8,
+  "steps": 1200,
+  "command": [
+    0.5,
+    0.0,
+    0.0
+  ],
+  "setup": "Flat-Play preset, seed 5, deterministic policy, LiDAR disabled; startup/reset randomization retained"
+}

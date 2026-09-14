@@ -25,7 +25,7 @@ from purerl.mdp.managers import (
 )
 from purerl.mdp.observations import relative_joint_positions
 from purerl.registry import get_task_spec
-from purerl.sensors import ContactHistory, height_observation, make_grid_pattern
+from purerl.sensors import BipedContactHistory, height_observation, make_grid_pattern
 from purerl.sim import IsaacSimBackend, SimulationBackend
 from purerl.terrain import TerrainCurriculum
 
@@ -63,7 +63,30 @@ class TienKungLocomotionEnv(BaseVecEnv):
             dtype=torch.float32,
             device=cfg.sim.device,
         )
-        self.contact_history = ContactHistory(foot_template)
+        self.contact_history = BipedContactHistory(
+            foot_template,
+            force_threshold=cfg.gait.contact_threshold,
+            release_time=cfg.gait.contact_release_time,
+            support_time=cfg.gait.min_phase_time,
+            min_air_time=cfg.gait.air_time_threshold,
+            flight_grace_time=cfg.gait.flight_grace_time,
+        )
+        self.foot_heights = foot_template.clone()
+        self.ground_height = foot_template[:, 0].clone()
+        self._gait_metric_sums = {
+            name: foot_template[:, 0].clone()
+            for name in (
+                "moving_time",
+                "single_support_time",
+                "flight_time",
+                "phase_match_time",
+                "swing_height_sum",
+                "swing_time",
+                "valid_landings",
+                "landing_events",
+                "velocity_error_sq_time",
+            )
+        }
         self.contact_force_history: torch.Tensor | None = None
         self._contact_force_history_index = 0
         self.height_scan = torch.zeros(
@@ -141,9 +164,7 @@ class TienKungLocomotionEnv(BaseVecEnv):
             device=self.device,
         )
         if self.terrain_curriculum is not None:
-            self.terrain_curriculum.levels = (
-                backend.terrain_levels.detach().cpu().numpy().copy()
-            )
+            self.terrain_curriculum.levels = backend.terrain_levels.detach().cpu().numpy().copy()
         self._reset_sensors(backend.all_env_ids)
         self._configure_spaces()
 
@@ -263,17 +284,20 @@ class TienKungLocomotionEnv(BaseVecEnv):
         return torch.stack((torch.sin(angle), torch.cos(angle)), dim=-1)
 
     def _get_gait_phase(self) -> Any:
-        """开环步态相位 -> stance mask [num_envs, 2]（1=支撑, 0=摆动，两脚反相）。"""
-        sin_pos = self.gait_phase[:, 0]
-        stance_mask = torch.zeros((self.num_envs, 2), dtype=torch.bool, device=self.device)
-        stance_mask[:, 0] = sin_pos >= 0
-        stance_mask[:, 1] = sin_pos < 0
-        stance_mask[torch.abs(sin_pos) < 0.1] = True
-        return stance_mask
+        return self._gait_targets()[0]
+
+    def _gait_targets(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Alternating swing arcs with an explicit double-support transition."""
+        phase = self.episode_length_buf * self.step_dt / self.cfg.gait.cycle_time
+        local_phase = torch.stack(((phase + 0.5) % 1.0, phase % 1.0), dim=-1)
+        margin = self.cfg.gait.double_support_fraction / 4.0
+        swing_progress = (local_phase - margin) / (0.5 - 2.0 * margin)
+        swing = (swing_progress > 0.0) & (swing_progress < 1.0)
+        target = self.cfg.gait.target_feet_height * torch.sin(torch.pi * swing_progress.clamp(0.0, 1.0))
+        return ~swing, target.clamp_min(0.0) * swing
 
     def _foot_contact_mask(self) -> Any:
-        forces = self.state.net_contact_forces[:, self._foot_body_indices]
-        return torch.norm(forces, dim=-1) > self.cfg.gait.contact_threshold
+        return self.contact_history.in_contact
 
     def _make_reward_manager(self, cfg: EnvCfg) -> RewardManager:
         leg_joint_indices = tuple(
@@ -297,7 +321,7 @@ class TienKungLocomotionEnv(BaseVecEnv):
         functions = {
             "termination_penalty": lambda env: reward_terms.termination_penalty(env._terminated()),
             "track_lin_vel_xy_exp": lambda env: reward_terms.track_lin_vel_xy_exp(
-                env.base_linear_velocity_yaw, env.commands, std=0.5
+                env.base_linear_velocity_yaw, env.commands, std=env.cfg.commands.lin_vel_tracking_std
             ),
             "track_ang_vel_z_exp": lambda env: reward_terms.track_ang_vel_z_exp(
                 env.state.root_angular_velocity, env.commands, std=0.5
@@ -321,10 +345,12 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 env.action_manager.action, env.action_manager.previous_action
             ),
             "feet_air_time": lambda env: reward_terms.feet_air_time_on_contact(
-                env.contact_history.last_air_time,
+                env.contact_history.valid_landing_air_time,
                 env.contact_history.contact_events,
                 env.commands,
+                supported_landing=env.contact_history.valid_landing_events,
                 threshold=env.cfg.gait.air_time_threshold,
+                command_threshold=env.cfg.gait.command_threshold,
             ),
             "feet_slide": lambda env: reward_terms.feet_slide(
                 env.state.body_linear_velocities[:, env._foot_body_indices],
@@ -354,8 +380,12 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 env._foot_contact_mask(),
                 env._get_gait_phase(),
                 env.commands,
+                current_air_time=env.contact_history.current_air_time,
+                current_contact_time=env.contact_history.current_contact_time,
+                min_phase_time=env.cfg.gait.min_phase_time,
                 command_threshold=env.cfg.gait.command_threshold,
             ),
+            "feet_flight": lambda env: env.contact_history.step_unsupported_time / env.step_dt,
             "feet_distance": lambda env: reward_terms.feet_distance(
                 env.state.body_positions[:, env._foot_body_indices],
                 min_dist=env.cfg.gait.foot_min_dist,
@@ -363,17 +393,18 @@ class TienKungLocomotionEnv(BaseVecEnv):
             ),
             "base_height": lambda env: reward_terms.base_height(
                 env.state.root_position[:, 2],
-                env.state.body_positions[:, env._foot_body_indices],
+                env.ground_height,
                 target=env.cfg.robot.default_root_height,
-                foot_offset=env.cfg.gait.foot_height_offset,
                 sigma=env.cfg.gait.base_height_sigma,
             ),
             "feet_clearance": lambda env: reward_terms.feet_clearance(
-                env.state.body_positions[:, env._foot_body_indices],
-                1.0 - env._get_gait_phase().float(),
+                env.foot_heights,
+                env._gait_targets()[1],
                 env.commands,
-                target=env.cfg.gait.target_feet_height,
-                foot_offset=env.cfg.gait.foot_height_offset,
+                contact=env._foot_contact_mask(),
+                current_contact_time=env.contact_history.current_contact_time,
+                support_time=env.cfg.gait.min_phase_time,
+                min_clearance=env.cfg.gait.min_clearance,
                 sigma=env.cfg.gait.clearance_sigma,
                 command_threshold=env.cfg.gait.command_threshold,
             ),
@@ -530,6 +561,15 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 offset=self.cfg.sensors.height_scan_offset,
             )
         )
+        self._update_terrain_relative_heights()
+
+    def _update_terrain_relative_heights(self, env_ids: Any = None) -> None:
+        feet = self.state.body_positions[:, self._foot_body_indices]
+        points = torch.cat((self.state.root_position[:, None, :2], feet[..., :2]), dim=1)
+        terrain = self.backend.sample_terrain_heights(points)
+        ids = slice(None) if env_ids is None else env_ids
+        self.ground_height[ids] = terrain[ids, 0]
+        self.foot_heights[ids] = feet[ids, :, 2] - terrain[ids, 1:] - self.cfg.gait.foot_height_offset
 
     def _update_physics_step_sensors(self) -> None:
         if self._foot_body_indices is None:
@@ -546,6 +586,8 @@ class TienKungLocomotionEnv(BaseVecEnv):
 
     def _reset_sensors(self, env_ids: Any) -> None:
         self.contact_history.reset(env_ids)
+        for values in self._gait_metric_sums.values():
+            values[env_ids] = 0.0
         if self.contact_force_history is not None:
             self.contact_force_history[env_ids] = 0.0
         self.height_scan[env_ids] = 0.0
@@ -558,9 +600,48 @@ class TienKungLocomotionEnv(BaseVecEnv):
                 terrain_heights,
                 offset=self.cfg.sensors.height_scan_offset,
             )
+            self._update_terrain_relative_heights(env_ids)
 
     def _clear_step_events(self) -> None:
+        moving = torch.linalg.vector_norm(self.commands[:, :2], dim=-1) > self.cfg.gait.command_threshold
+        moving_dt = moving * self.step_dt
+        stance = self._get_gait_phase()
+        contact = self._foot_contact_mask()
+        history = self.contact_history
+        mode_time = torch.where(stance, history.current_contact_time, history.current_air_time)
+        matched = (contact == stance).all(dim=-1) & (mode_time.amin(dim=-1) + 1e-7 >= self.cfg.gait.min_phase_time)
+        swing = ~stance & moving[:, None]
+        valid_landings = (history.valid_landing_events & history.contact_events).sum(dim=-1)
+        valid_landings *= history.contact_events.sum(dim=-1) == 1
+        values = {
+            "moving_time": moving_dt,
+            "single_support_time": history.step_single_support_time * moving,
+            "flight_time": history.step_flight_time * moving,
+            "phase_match_time": matched * moving_dt,
+            "swing_height_sum": (self.foot_heights.clamp_min(0.0) * swing).sum(dim=-1) * self.step_dt,
+            "swing_time": swing.sum(dim=-1) * self.step_dt,
+            "valid_landings": valid_landings * moving,
+            "landing_events": history.contact_events.sum(dim=-1) * moving,
+            "velocity_error_sq_time": (
+                (self.base_linear_velocity_yaw[:, :2] - self.commands[:, :2]).square().sum(dim=-1) * moving_dt
+            ),
+        }
+        for key, value in values.items():
+            self._gait_metric_sums[key] += value
         self.contact_history.clear_events()
+
+    def _collect_episode_metrics(self, env_ids: Any) -> dict[str, Any]:
+        values = {name: sums[env_ids] for name, sums in self._gait_metric_sums.items()}
+        duration = values["moving_time"].clamp_min(1e-6)
+        return {
+            "Gait/single_support_fraction": values["single_support_time"] / duration,
+            "Gait/flight_fraction": values["flight_time"] / duration,
+            "Gait/phase_match_fraction": values["phase_match_time"] / duration,
+            "Gait/swing_clearance_m": values["swing_height_sum"] / values["swing_time"].clamp_min(1e-6),
+            "Gait/valid_landing_rate_hz": values["valid_landings"] / duration,
+            "Gait/valid_landing_fraction": values["valid_landings"] / values["landing_events"].clamp_min(1.0),
+            "Gait/xy_velocity_rmse": (values["velocity_error_sq_time"] / duration).sqrt(),
+        }
 
     def _height_scan_world_points(self) -> torch.Tensor:
         yaw = _yaw_from_quaternion(self.state.root_quaternion)

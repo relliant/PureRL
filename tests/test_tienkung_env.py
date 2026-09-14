@@ -183,9 +183,16 @@ def test_gait_clock_is_observable_and_matches_reward_support_after_selective_res
 def test_landing_event_scale_is_wired_into_environment():
     env = make_env(play=True)
     env.command_manager.command[:] = torch.tensor([0.3, 0.0, 0.0])
-    env.contact_history.last_air_time[:] = 0.24
-    env.contact_history.contact_events[:] = False
-    env.contact_history.contact_events[0, 0] = True
+    forces = torch.zeros((2, 2, 3))
+    forces[:, :, 2] = 100.0
+    for _ in range(10):
+        env.contact_history.update(forces, env.cfg.sim.dt)
+    env.contact_history.clear_events()
+    forces[0, 0, 2] = 0.0
+    for _ in range(48):
+        env.contact_history.update(forces, env.cfg.sim.dt)
+    forces[0, 0, 2] = 100.0
+    env.contact_history.update(forces, env.cfg.sim.dt)
     env.termination_manager.compute(env)
     env.reward_manager.compute(env)
     assert torch.allclose(env.reward_manager.last_weighted["feet_air_time"], torch.tensor([0.09, 0.0]))
@@ -208,6 +215,57 @@ def test_flat_environment_runs_manager_lifecycle():
         env.contact_history.current_air_time,
         torch.full((2, 2), env.cfg.sim.dt * env.cfg.sim.decimation),
     )
+
+
+def test_gait_rewards_use_ground_below_root_and_each_foot():
+    env = make_env(play=True)
+    env.state.root_position[:, 2] = 0.89
+    env.state.body_positions[:, env._foot_body_indices, 2] = env.cfg.gait.foot_height_offset
+    env._update_sensors()
+    env.termination_manager.compute(env)
+    env.reward_manager.compute(env)
+    initial = env.reward_manager.last_raw["base_height"].clone()
+    env.state.body_positions[:, env._foot_body_indices[0], 2] += 0.04
+    env._update_sensors()
+    env.reward_manager.compute(env)
+    assert torch.equal(env.reward_manager.last_raw["base_height"], initial)
+    torch.testing.assert_close(env.foot_heights, torch.tensor([[0.04, 0.0], [0.04, 0.0]]))
+    env.state.root_position[:, 2] += 0.7
+    env.state.body_positions[:, :, 2] += 0.7
+    env.backend.sample_terrain_heights = lambda points: torch.full(points.shape[:-1], 0.7)
+    env._update_sensors()
+    env.reward_manager.compute(env)
+    torch.testing.assert_close(env.reward_manager.last_raw["base_height"], initial)
+    torch.testing.assert_close(env.foot_heights, torch.tensor([[0.04, 0.0], [0.04, 0.0]]))
+
+
+def test_gait_targets_include_double_support_and_alternating_swing_peaks():
+    env = make_env(play=True)
+    env.cfg = env.cfg.replace(gait=env.cfg.gait.replace(cycle_time=0.8))
+    env.episode_length_buf[:] = torch.tensor([0, 20])
+    stance, heights = env._gait_targets()
+    assert stance.all()
+    assert torch.count_nonzero(heights) == 0
+    env.episode_length_buf[:] = torch.tensor([10, 30])
+    stance, heights = env._gait_targets()
+    assert stance.tolist() == [[True, False], [False, True]]
+    torch.testing.assert_close(heights, torch.tensor([[0.0, 0.04], [0.04, 0.0]]))
+
+
+def test_metrics_use_actual_sample_time_and_selective_reset_preserves_other_env():
+    env = make_env(play=True)
+    env.command_manager.command[:] = torch.tensor([0.3, 0.0, 0.0])
+    env.state.net_contact_forces[0, env._foot_body_indices[0], 2] = 100.0
+    # RSL can initialize episode_length_buf randomly. This must not dilute
+    # fractions with unobserved time at the beginning of an episode.
+    env.episode_length_buf[0] = env.max_episode_length - 1
+    _, _, _, truncated, info = env.step(torch.zeros((2, 20)))
+    assert truncated.tolist() == [True, False]
+    assert info["episode"]["Gait/single_support_fraction"].tolist() == [1.0]
+    assert info["episode"]["Gait/flight_fraction"].tolist() == [0.0]
+    torch.testing.assert_close(env._gait_metric_sums["moving_time"], torch.tensor([0.0, 0.02]))
+    torch.testing.assert_close(env.reward_manager.last_weighted["feet_flight"], torch.tensor([0.0, -0.01]))
+    assert torch.count_nonzero(env.contact_history.current_contact_time[0]) == 0
 
 
 def test_reset_domain_randomization_is_seeded_and_batched():

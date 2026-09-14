@@ -1,0 +1,24 @@
+{
+  "warmup_excluded_s": 2.0,
+  "valid_env_seconds": 0.0,
+  "note": "No episode survived the warmup; no steady-state gait comparison is possible.",
+  "maximum_episode_age_s_per_env": [
+    1.42,
+    1.18,
+    1.3,
+    1.84,
+    1.18,
+    1.3,
+    1.62,
+    1.22
+  ],
+  "termination_counts": {
+    "time_out": 0,
+    "base_contact": 3,
+    "bad_orientation": 64
+  },
+  "control": "fixed default joint targets",
+  "steps": 500,
+  "num_envs": 8,
+  "seed": 5
+}

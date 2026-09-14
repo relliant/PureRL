@@ -96,6 +96,7 @@ class BaseVecEnv:
         done_env_ids = self.backend.nonzero(done)
         terminal_observation = self.observation_manager.compute(self)[done_env_ids]
         episode = self.reward_manager.reset(done_env_ids)
+        episode.update(self._collect_episode_metrics(done_env_ids))
         for name, values in self.termination_manager.last_values.items():
             episode[f"Termination/{name}"] = values[done_env_ids] * 1.0
         self._apply_curriculum(done_env_ids)
@@ -163,3 +164,7 @@ class BaseVecEnv:
 
     def _clear_step_events(self) -> None:
         """Clear latched sensor events after reward terms consume them."""
+
+    def _collect_episode_metrics(self, env_ids: Any) -> dict[str, Any]:
+        """Return task metrics before completed episodes are reset."""
+        return {}

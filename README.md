@@ -1,410 +1,81 @@
-# PureRL: TienKung Multi-Terrain Locomotion
+# PureRL
 
-PureRL provides standalone Isaac Sim 5.1 locomotion environments for the
-20-DOF TienKung2 Lite humanoid. It uses direct Isaac Sim tensor APIs,
-Gymnasium, PyTorch, and RSL-RL 3.1. No Isaac Lab checkout or `isaaclab*`
-Python package is required.
+English | [中文](README.zh-CN.md)
 
-## Tasks
+Train the TienKung 2 Lite humanoid to walk on flat ground, slopes, and stairs using reinforcement learning. Built on Isaac Sim 5.1 and RSL-RL (PPO). Isaac Lab is not required.
 
-| Gym ID | Purpose |
-| --- | --- |
-| `PureRL-Velocity-Flat-TienKung-v0` | Flat-ground training |
-| `PureRL-Velocity-Flat-TienKung-Play-v0` | Flat-ground evaluation |
-| `PureRL-Velocity-Rough-TienKung-v0` | Generated-terrain curriculum training |
-| `PureRL-Velocity-Rough-TienKung-Play-v0` | Generated-terrain evaluation |
+## Install
 
-All tasks use 20 joint-position residual actions and the same 261-dimensional
-policy observation. Values `[72:259]` are a pelvis-yaw-frame terrain height
-scan; `[259:261]` contain the gait clock's sine and cosine. Current Flat
-checkpoints can be loaded directly into Rough environments.
-
-The September 2026 training fixes require a fresh run. Legacy 259-dimensional
-checkpoints are rejected by training and evaluation, including with
-`--allow-unsafe-checkpoint`. See [TRAINING_FIXES.md](TRAINING_FIXES.md) for the
-action-buffer, collision-isolation and reward changes and their verification.
-
-## Installation
-
-Isaac Sim 5.1 requires Python 3.11. NVIDIA packages require acceptance of the
-Isaac Sim EULA and access to NVIDIA's Python package index.
+You need Linux, an NVIDIA GPU with a working driver, and Python 3.11. Run all commands from the repository root.
 
 ```bash
-cd /home/vega/Project/Locomotion/PureRL
-uv python install 3.11
-uv venv --python 3.11 --seed .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
-uv pip install --extra-index-url https://pypi.nvidia.com -e "source/purerl[sim,dev]"
+python -m pip install --upgrade pip
 export OMNI_KIT_ACCEPT_EULA=YES
-```
-
-Validate the local package without starting Isaac Sim:
-
-```bash
-python scripts/tools/validate_urdf.py
+python -m pip install --extra-index-url https://pypi.nvidia.com -e "source/purerl[sim,dev]"
 python scripts/tools/check_task_config.py
-pytest -q
 ```
 
-## Simulator Checks
+The installation downloads Isaac Sim. Setting `OMNI_KIT_ACCEPT_EULA=YES` accepts its license agreement. Activate the virtual environment and set this variable again in each new terminal.
 
-The direct backend and complete environments can be checked independently:
+## Train
+
+Training defaults to flat ground. Check the setup with a small run before starting full training:
 
 ```bash
-python scripts/tools/check_direct_backend.py --num-envs 2 --steps 16
-python scripts/tools/check_flat_env.py --num-envs 32 --steps 1000 \
-  --random-actions --check-selective-reset
-python scripts/tools/check_rough_env.py --num-envs 7 --steps 64 \
-  --terrain-rows 2 --terrain-cols 7
-python scripts/tools/check_camera_video.py --frames 12
-python scripts/tools/check_legacy_trajectory.py
+# Check the setup: 32 environments, 5 iterations
+python scripts/rsl_rl/train.py --num-envs 32 --max-iterations 5 \
+  --run-name flat_check --logger tensorboard
+
+# Full training: defaults to 4096 environments, 10001 iterations
+python scripts/rsl_rl/train.py --run-name flat_seed5 --logger tensorboard
 ```
 
-Measure throughput, tensor stability, termination causes, and CUDA memory at
-training scale:
+Reduce `--num-envs` if GPU memory is insufficient. Models and logs are saved in timestamped run directories under `logs/rsl_rl/tienkung_flat/` or `logs/rsl_rl/tienkung_rough/`.
+
+Start rough-terrain training from a trained flat policy. Replace `/path/to/flat/model.pt` with your model file:
 
 ```bash
-python scripts/tools/benchmark_env.py \
-  --task PureRL-Velocity-Rough-TienKung-v0 \
-  --num-envs 2048 --warmup-steps 32 --steps 100 --check-interval 25
-
-python scripts/tools/benchmark_env.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --num-envs 32 --warmup-steps 32 --steps 10000 \
-  --memory-baseline-step 2000 --progress-interval 1000 --random-actions
-```
-
-## Configuration
-
-Environment and RSL-RL training values are stored as complete, directly
-editable YAML presets under `source/purerl/purerl/config/presets`:
-
-| Task variant | Environment config | Runner config |
-| --- | --- | --- |
-| Flat train | `flat_env.yaml` | `flat_runner.yaml` |
-| Flat play | `flat_play_env.yaml` | `flat_runner.yaml` |
-| Rough train | `rough_env.yaml` | `rough_runner.yaml` |
-| Rough play | `rough_play_env.yaml` | `rough_runner.yaml` |
-
-Each environment preset includes simulation, scene, robot, action,
-observation, sensor, visual, command, randomization, terrain, and reward values. Each
-runner preset includes policy, PPO, checkpoint, and logger values. Presets do
-not inherit from one another, so a file shows the complete configuration that
-will be loaded for that variant. Relative filesystem paths, including
-`robot.urdf_path`, are resolved relative to the YAML file that declares them.
-
-Pass custom complete configs to either training or playback:
-
-```bash
-python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --env-config configs/my_flat_env.yaml \
-  --runner-config configs/my_flat_runner.yaml
-
-python scripts/rsl_rl/play.py \
-  --task PureRL-Velocity-Flat-TienKung-Play-v0 \
-  --env-config configs/my_flat_play_env.yaml \
-  --runner-config configs/my_flat_runner.yaml \
-  --checkpoint /absolute/path/to/model.pt
-```
-
-`--agent-config` remains available as an alias for `--runner-config`. Values
-are resolved in this order: the selected YAML preset, dataclass type conversion
-and validation, then explicit CLI overrides such as `--num-envs`, `--device`,
-or `--max-iterations`. The final resolved configs are written to the run's
-`params/env.yaml` and `params/agent.yaml` files.
-
-The Play presets enable one head-mounted RTX 3D LiDAR using the local
-`OS1_REV6_32ch10hz512res` profile. The imported robot merges fixed joints, so
-the backend mounts to `head` when that prim exists and otherwise mounts to
-`pelvis` with the configured head offset. LiDAR fields live under
-`sensors.lidar`; `visuals.sky_color`, `sky_intensity`, `ground_color`, and
-`terrain_color` control the simulation background and terrain appearance.
-Training presets keep LiDAR disabled to avoid creating an RTX render product
-for large vectorized runs. LiDAR points are intentionally not appended to the
-261-dimensional locomotion observation.
-
-### Gait Rewards
-
-The Flat and Rough locomotion presets add four humanoid-gym-inspired gait
-reward terms on top of the standard velocity-tracking and energy terms:
-
-| Term | Weight | Purpose |
-| --- | --- | --- |
-| `feet_contact_number` | 0.35 | Penalize foot contacts that do not match the open-loop gait phase |
-| `feet_distance` | 0.1 | Keep stance width inside `[foot_min_dist, foot_max_dist]` |
-| `base_height` | 0.5 | Hold the pelvis at `default_root_height` above the ground |
-| `feet_clearance` | 0.25 | Lift the swing foot to `target_feet_height` |
-
-The existing `feet_air_time` term is also event-based: it pays only when a
-foot lands after a sufficiently long swing, rather than paying every policy
-step while the foot remains planted. Contact transitions are latched over all
-physics substeps, so a landing is not lost when the policy decimation is four.
-Reward terms marked `is_event: true` are paid without an extra timestep factor.
-Other terms remain rates integrated with `step_dt`; the termination penalty
-therefore remains `-200 * 0.02 = -4` per failure. The sin/cos gait clock is
-visible to both actor and critic and receives no observation noise.
-The alternating-contact and clearance terms are disabled for near-zero
-velocity commands, allowing the standing-command environments to keep both
-feet planted.
-
-Gait parameters live under the `gait:` block of each environment YAML and are
-TienKung-specific (leg length `0.8 m`, foot sole offset `0.0569 m`). See
-[`GAIT_REWARD_TUNING.md`](GAIT_REWARD_TUNING.md) for the measured values and
-the tuning procedure. Start a fresh Flat run with the current observation
-contract when comparing gait quality:
-
-```bash
-python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --run-name flat_gait_v1 \
-  --max-iterations 10001
-```
-
-## Training
-
-Run a short flat PPO smoke test:
-
-```bash
-python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --num-envs 32 --max-iterations 2 --num-steps-per-env 8
-```
-
-Run full flat training, then initialize rough training from its policy:
-
-```bash
-python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --run-name flat_baseline_seed5
-
 python scripts/rsl_rl/train.py \
   --task PureRL-Velocity-Rough-TienKung-v0 \
-  --run-name rough_transfer_seed5 \
-  --pretrained-checkpoint /absolute/path/to/model_3000.pt
+  --pretrained-checkpoint /path/to/flat/model.pt \
+  --run-name rough_seed5 --logger tensorboard
 ```
 
-Checkpoints are written below `logs/rsl_rl/tienkung_flat` and
-`logs/rsl_rl/tienkung_rough`. Both training presets default to 4096 environments
-and online W&B logging in the `purerl` project using the currently authenticated
-account. Flat training starts without external pushes or actuator-gain
-randomization so the policy can learn to stand and take regular steps; add those
-perturbations later through a custom environment YAML when robustness training
-is needed. Start with `--num-envs 2048` if 4096 exceeds available GPU memory.
+- **View training curves:** run `tensorboard --logdir logs/rsl_rl` and open the address printed in the terminal.
+- **Use W&B:** run `wandb login`, then omit `--logger tensorboard`. The default project is `purerl`.
+- **Resume an interrupted run:** add `--resume --load-run /path/to/run --load-checkpoint model_3000.pt` to the original training command. `--max-iterations` counts additional iterations. Do not combine this with `--pretrained-checkpoint`, which starts a new optimizer.
 
-The default training presets are adapted from the XBot-L PPO configuration in
-[roboterax/humanoid-gym](https://github.com/roboterax/humanoid-gym): 24-second
-episodes, 60 policy steps per rollout, a `1e-5` learning rate, two learning
-epochs, `gamma=0.994`, `lambda=0.9`, and a wider
-`[768, 256, 128]` critic. Compatible environment settings use a `0.25` joint
-target action scale, 8-second command resampling, and command ranges of
-`x=[-0.3, 0.6]`, `y=[-0.3, 0.3]`, and `yaw=[-0.3, 0.3]`. TienKung-specific PD
-gains, 20-action observations, height scanning, reward functions and weights,
-termination behavior, and the policy-noise guard remain local because the
-XBot-L values are not transferable as configuration constants. Both Flat and
-Rough presets use 10001 PPO iterations.
+## Evaluate and export
 
-The action scale and PPO hyperparameters differ from earlier PureRL presets.
-Start a new Flat run after this change; do not resume or transfer a checkpoint
-trained with the old `0.5` action scale.
-
-Use `--resume` to restore the policy, optimizer state, and stored RSL-RL
-iteration. With no selectors it loads the naturally newest matching run and
-checkpoint. Explicit selectors are safer when several experiments exist:
+On a machine with a graphical desktop, view a trained flat policy:
 
 ```bash
-python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --num-envs 4096 \
-  --resume \
-  --load-run /absolute/path/to/previous/run \
-  --load-checkpoint model_3000.pt \
-  --max-iterations 7000
+python scripts/rsl_rl/play.py --checkpoint /path/to/model.pt \
+  --show --real-time --no-lidar --no-export
 ```
 
-For resumed training, `--max-iterations` is the number of additional PPO
-iterations, not an absolute final iteration. The example resumes iteration
-3000 at iteration 3001, trains 7000 more iterations, and finishes near
-`model_10000.pt`. Do not use `--pretrained-checkpoint` for this workflow: that
-option transfers policy weights but deliberately starts a new optimizer and
-iteration counter.
+Replace the model path with your file. By default, one robot walks forward at 0.5 m/s for about 20 seconds.
 
-Online W&B logging is enabled by default, so a named training run needs only:
+- **Set velocity:** add `--command VX VY WZ` for forward speed, lateral speed (m/s), and yaw rate (rad/s).
+- **Evaluate a rough policy:** add `--task PureRL-Velocity-Rough-TienKung-Play-v0`. This displays seven terrain types by default.
+- **Record without a desktop:** replace `--show --real-time` with `--video --video-path videos/demo.mp4`.
+- **Export:** omit `--no-export` to generate `policy.pt` (TorchScript) and `policy.onnx` in an `exported/` directory next to the model.
 
-```bash
-python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --run-name flat_baseline_seed5
-```
+## Configure
 
-W&B uses the currently authenticated account and the `purerl` project from the
-runner preset. Override only the values needed for a particular run. For
-example, keep the same logging locally without uploading:
+Configuration files are in [config/presets](source/purerl/purerl/config/presets/):
 
-```bash
-python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --run-name flat_offline_debug \
-  --wandb-mode offline
-```
+| Terrain | Training environment | Evaluation environment | PPO and logging |
+| --- | --- | --- | --- |
+| Flat | `flat_env.yaml` | `flat_play_env.yaml` | `flat_runner.yaml` |
+| Rough | `rough_env.yaml` | `rough_play_env.yaml` | `rough_runner.yaml` |
 
-Use `--logger tensorboard` to disable W&B for a run. Custom W&B projects,
-entities, and tags remain available through `--wandb-project`,
-`--wandb-entity`, and `--wandb-tags` or their runner YAML fields.
+Command-line options override YAML values. Use `--env-config` and `--runner-config` for custom, complete configuration files. Relative URDF paths are resolved from the YAML file's directory. Each run saves its resolved configuration in `params/`.
 
-`--run-name` labels both the local checkpoint directory and the W&B run. RSL-RL
-prefixes the displayed name with the launch timestamp, so
-`--run-name flat_baseline_seed5` appears as
-`2026-08-08_12-30-00_flat_baseline_seed5`. Use names that identify the terrain,
-experiment variant, and seed. The same value can be stored as `run_name` in a
-runner YAML; the command-line option overrides that configured value.
+**Current policies use 261 observations. Legacy 259-dimensional models cannot be evaluated or resumed directly; start a new training run.**
 
-To append metrics to the original online W&B run as well as resuming the local
-checkpoint, provide its run ID and use `--wandb-resume must`:
+For all options, run `python scripts/rsl_rl/train.py --help` or `python scripts/rsl_rl/play.py --help`. Run tests with `python -m pytest -q`.
 
-```bash
-python scripts/rsl_rl/train.py \
-  --task PureRL-Velocity-Flat-TienKung-v0 \
-  --resume \
-  --load-run /absolute/path/to/previous/run \
-  --load-checkpoint model_3000.pt \
-  --max-iterations 7000 \
-  --run-name flat_baseline_seed5 \
-  --wandb-run-id EXISTING_RUN_ID \
-  --wandb-resume must \
-  --wandb-tags flat baseline
-```
-
-The continued checkpoints and local W&B files are written to a new timestamped
-run directory; the W&B run ID keeps the remote charts continuous. During this
-workflow PureRL permits RSL-RL to refresh the existing run's `log_dir` and
-serialized training configs, which differ legitimately after resuming. Use
-`--wandb-resume allow` instead when creating a new W&B run is acceptable if the
-specified ID cannot be resumed. Validate save, resume, flat-to-rough transfer,
-export, and offline W&B logging together with:
-
-```bash
-python scripts/tools/check_rsl_workflow.py --wandb-offline
-```
-
-The policy exploration standard deviation is constrained by
-`min_action_noise_std` and `max_action_noise_std` in the runner YAML. Loading a
-checkpoint whose mean standard deviation exceeds `max_checkpoint_noise_std`
-is rejected by default. `--allow-unsafe-checkpoint` exists for diagnostics,
-but an unhealthy checkpoint should not be used to continue or transfer
-training. Runs produced before the unclipped-action fix must be retrained from
-scratch; in particular, do not use a checkpoint whose W&B
-`Policy/mean_noise_std` has grown beyond the configured limit.
-
-## Evaluation And Export
-
-Use the play task that matches the checkpoint's training terrain.
-
-Evaluate a Flat checkpoint in an interactive Isaac Sim window with one robot
-and a fixed forward velocity command:
-
-```bash
-python scripts/rsl_rl/play.py \
-  --task PureRL-Velocity-Flat-TienKung-Play-v0 \
-  --checkpoint /absolute/path/to/flat_run/model_10000.pt \
-  --command 0.5 0.0 0.0 \
-  --show \
-  --real-time \
-  --no-export
-```
-
-Flat Play already defaults to one robot on a plane, 1000 policy steps, and the
-`[0.5, 0.0, 0.0]` command, so `--num-envs`, `--steps`, and `--command` can be
-omitted when those defaults are suitable. Omit `--checkpoint` as well to load
-the newest `model_*.pt` from the newest run under
-`logs/rsl_rl/tienkung_flat`, or use `--load-run` and `--load-checkpoint` to
-select a run without writing an absolute checkpoint path. Change
-`--command VX VY WZ` to evaluate forward, lateral, and yaw command tracking.
-
-For a Rough checkpoint, open the corresponding generated-terrain play task.
-Rough Play now defaults to **multi-terrain evaluation**: seven environments,
-each on the highest difficulty level (`selected_level: 4`) of a different
-terrain type, so one playback covers all seven patch types side by side:
-
-```bash
-python scripts/rsl_rl/play.py \
-  --task PureRL-Velocity-Rough-TienKung-Play-v0 \
-  --checkpoint /absolute/path/to/healthy_model.pt \
-  --command 0.5 0.0 0.0 \
-  --show \
-  --real-time \
-  --no-export
-```
-
-The seven robots are placed on `flat`, `random_rough`, `slope_up`,
-`slope_down`, `stairs_up`, `stairs_down`, and `random_blocks`. To focus on a
-single terrain type, pass `--terrain-patch` and `--terrain-level` (these
-override the YAML `selected_patch: null` / `selected_level: 4`):
-
-```bash
-python scripts/rsl_rl/play.py \
-  --task PureRL-Velocity-Rough-TienKung-Play-v0 \
-  --checkpoint /absolute/path/to/healthy_model.pt \
-  --num-envs 1 \
-  --terrain-patch stairs_up \
-  --terrain-level 4 \
-  --command 0.5 0.0 0.0 \
-  --show --real-time --no-export
-```
-
-`--show` uses the interactive `human` render mode, submits viewport frames,
-and aims the camera relative to the selected environment origin. Available
-patch names are `flat`, `random_rough`, `slope_up`, `slope_down`, `stairs_up`,
-`stairs_down`, and `random_blocks`. Playback prints the resolved command,
-terrain patch/level/column, LiDAR mount/profile, periodic robot positions,
-and the latest LiDAR point count. Use `--no-lidar` to disable the playback
-sensor or `--lidar` to enable it for a custom config. Set `--log-interval 0`
-to disable progress lines.
-
-Record 1000 policy steps, approximately 20 seconds at the default 50 Hz
-policy frequency, without opening the interactive window:
-
-```bash
-python scripts/rsl_rl/play.py \
-  --task PureRL-Velocity-Rough-TienKung-Play-v0 \
-  --checkpoint /absolute/path/to/healthy_model.pt \
-  --num-envs 1 \
-  --steps 1000 \
-  --video \
-  --video-length 1000 \
-  --video-fps 50 \
-  --video-path videos/rough_policy.mp4 \
-  --no-export
-```
-
-The play command exports `policy.pt` and `policy.onnx` into an `exported`
-directory next to the checkpoint unless `--no-export` is set. Pass
-`--command VX VY WZ` for a different fixed command, or provide a complete
-custom environment YAML through `--env-config` for randomized command tests.
-
-## Runtime Contract
-
-- Physics frequency: 200 Hz (`dt=0.005`).
-- Policy frequency: 50 Hz (`decimation=4`).
-- Action: 20 unclipped position residuals with a `0.25 rad` scale. Exploration
-  noise is bounded separately in the runner configuration so PPO log
-  probabilities and executed actions remain consistent.
-- Velocity commands use a sampled world-heading target, proportional yaw
-  control with gain `0.5`, and a 10% standing-environment ratio.
-- Contact history update: every physics step.
-- Height scan update: every policy step.
-- Rough terrain: flat, random rough, slopes, stairs, and random blocks.
-- Rough environments use explicit PhysX collision groups so robots assigned to
-  the same terrain tile cannot collide with each other.
-- Selective reset and terrain-level curriculum are batched by environment ID.
-- Domain events: pelvis mass/COM, PD gains, joint/root reset pose, external
-  wrench, and periodic planar velocity pushes.
-- Robot contact friction is randomized per environment from 64 coefficient
-  buckets and written to every robot collision shape.
-- Training observations apply term-specific uniform corruption to base
-  velocities, projected gravity, joint state, and height scan. Play tasks
-  disable corruption; height scan values are always clipped to `[-1, 1]`.
-- Legacy fixtures lock the historical Isaac Lab/PureRL revisions, articulation
-  joint order, term-level reward math, reset behavior, terrain assignment, and
-  a 16-step action trajectory. The direct backend is checked against documented
-  migration tolerances rather than claimed to be bitwise physics-identical.
+Details: [Training fixes and validation](TRAINING_FIXES.md) · [Gait reward design](GAIT_REWARD_TUNING.md)

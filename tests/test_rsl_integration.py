@@ -59,6 +59,36 @@ def test_local_runner_config_constructs_rsl_rl_3_runner():
     assert runner.alg.policy.actor[-1].out_features == 20
 
 
+def test_real_runner_omits_empty_episode_metrics_and_logs_completed_episodes(tmp_path):
+    from rsl_rl.runners import OnPolicyRunner
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+    from test_tienkung_env import make_env
+
+    env = make_env(play=True)
+    env.max_episode_length = 5
+    wrapped = RslRlVecEnvWrapper(env)
+    cfg = make_flat_runner_cfg()
+    cfg = cfg.replace(
+        device="cpu", logger="tensorboard", num_steps_per_env=2,
+        policy=cfg.policy.replace(actor_hidden_dims=(16,), critic_hidden_dims=(16,)),
+        algorithm=cfg.algorithm.replace(num_mini_batches=1, num_learning_epochs=1),
+    )
+    runner = OnPolicyRunner(wrapped, cfg.to_dict(), log_dir=str(tmp_path), device="cpu")
+    try:
+        # No episode completes in iterations 0/1. Both finish in iteration 2.
+        runner.learn(num_learning_iterations=3, init_at_random_ep_len=False)
+        runner.writer.flush()
+        accumulator = EventAccumulator(str(tmp_path)).Reload()
+        for tag in ("Gait/flight_fraction", "Episode/feet_contact_number", "Termination/time_out"):
+            events = accumulator.Scalars(tag)
+            assert [event.step for event in events] == [2]
+            assert all(torch.isfinite(torch.tensor(event.value)) for event in events)
+    finally:
+        if runner.writer is not None:
+            runner.writer.close()
+        wrapped.close()
+
+
 @pytest.mark.parametrize("reason", ["terminated", "truncated"])
 def test_auto_reset_preserves_ppo_actions_and_old_log_prob(reason):
     from rsl_rl.algorithms import PPO

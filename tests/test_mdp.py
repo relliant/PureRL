@@ -244,7 +244,9 @@ def test_air_time_reward_pays_only_on_latched_landing_events():
     contact_events = np.asarray([[True, False], [False, False]])
     command = np.asarray([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
 
-    reward = feet_air_time_on_contact(last_air_time, contact_events, command, threshold=0.25)
+    reward = feet_air_time_on_contact(
+        last_air_time, contact_events, command, supported_landing=contact_events, threshold=0.25
+    )
 
     assert reward == pytest.approx([0.15, 0.0])
 
@@ -254,21 +256,27 @@ def test_gait_contact_reward_ignores_standing_commands():
     stance = np.asarray([[True, True], [True, False]])
     command = np.asarray([[0.0, 0.0, 0.0], [0.2, 0.0, 0.0]])
 
-    reward = feet_contact_number(contact, stance, command)
+    reward = feet_contact_number(
+        contact,
+        stance,
+        command,
+        current_air_time=np.full((2, 2), 0.1),
+        current_contact_time=np.full((2, 2), 0.1),
+    )
 
     assert reward == pytest.approx([0.0, 1.0])
 
 
 def test_swing_clearance_is_smooth_and_zero_for_stance():
-    foot_positions = np.asarray([[[0.1169, 0.0, 0.1169], [0.0569, 0.0, 0.0569]]])
-    swing = np.asarray([[1.0, 0.0]])
+    foot_heights = np.asarray([[0.06, 0.0]])
+    target_heights = np.asarray([[0.06, 0.0]])
 
     reward = feet_clearance(
-        foot_positions,
-        swing,
+        foot_heights,
+        target_heights,
         np.asarray([[0.2, 0.0, 0.0]]),
-        target=0.06,
-        foot_offset=0.0569,
+        contact=np.asarray([[False, True]]),
+        current_contact_time=np.asarray([[0.0, 0.2]]),
         sigma=0.025,
     )
 
@@ -276,10 +284,16 @@ def test_swing_clearance_is_smooth_and_zero_for_stance():
 
 
 def test_swing_clearance_ignores_standing_commands():
-    foot_positions = np.asarray([[[0.1169, 0.0, 0.1169], [0.0569, 0.0, 0.0569]]])
-    swing = np.asarray([[1.0, 0.0]])
+    foot_heights = np.asarray([[0.06, 0.0]])
+    target_heights = np.asarray([[0.06, 0.0]])
 
-    reward = feet_clearance(foot_positions, swing, np.asarray([[0.0, 0.0, 0.0]]), target=0.06)
+    reward = feet_clearance(
+        foot_heights,
+        target_heights,
+        np.asarray([[0.0, 0.0, 0.0]]),
+        contact=np.asarray([[False, True]]),
+        current_contact_time=np.asarray([[0.0, 0.2]]),
+    )
 
     assert reward == pytest.approx([0.0])
 

@@ -69,18 +69,16 @@ def feet_air_time_on_contact(
     first_contact: Any,
     command: Any,
     *,
+    supported_landing: Any,
     threshold: float = 0.25,
     command_threshold: float = 0.1,
 ) -> Any:
-    """Reward a deliberate swing only once, when the foot lands.
-
-    Unlike the legacy implementation, this does not pay continuously while a
-    foot remains in stance. ``first_contact`` should be latched across all
-    physics substeps that make up one policy step.
-    """
+    """Pay for a supported, alternating landing once; reject simultaneous landings."""
 
     moving = norm(command[..., :2]) > command_threshold
-    return sum_axis(clip(last_air_time - threshold, 0.0, threshold) * first_contact) * moving
+    single_event = sum_axis(first_contact) == 1
+    valid = first_contact & supported_landing
+    return sum_axis(clip(last_air_time - threshold, 0.0, threshold) * valid) * single_event * moving
 
 
 def feet_slide(foot_linear_velocity: Any, contact_forces: Any, *, threshold: float = 1.0) -> Any:
@@ -124,16 +122,17 @@ def feet_contact_number(
     stance_mask: Any,
     command: Any | None = None,
     *,
+    current_air_time: Any,
+    current_contact_time: Any,
+    min_phase_time: float = 0.04,
     command_threshold: float = 0.1,
 ) -> Any:
-    """Reward alternating support contacts during commanded locomotion.
+    """Score the complete support pattern, requiring sustained support and swing."""
 
-    Standing commands are excluded because a fixed alternating clock is not a
-    meaningful target while the robot is supposed to remain still.
-    """
-
-    reward = where(contact == stance_mask, 1.0, -0.3)
-    value = sum_axis(reward, axis=-1) / 2.0
+    matched = sum_axis(contact == stance_mask) == 2
+    mode_time = where(stance_mask, current_contact_time, current_air_time)
+    sustained = min_axis(mode_time, axis=-1) + 1e-7 >= min_phase_time
+    value = where(matched, where(sustained, 1.0, 0.0), -1.0)
     if command is None:
         return value
     moving = norm(command[..., :2]) > command_threshold
@@ -150,37 +149,37 @@ def feet_distance(body_positions: Any, *, min_dist: float = 0.2, max_dist: float
 
 def base_height(
     root_position_z: Any,
-    foot_positions: Any,
+    ground_height: Any,
     *,
     target: float = 0.9,
-    foot_offset: float = 0.0569,
     sigma: float = 0.05,
 ) -> Any:
-    """保持躯干在脚上方目标高度（惩罚蹲姿/踮脚）。foot_offset 为脚 body 原点到脚底距离。"""
-    avg_foot_z = sum_axis(foot_positions[..., 2], axis=-1) / 2.0
-    height = root_position_z - (avg_foot_z - foot_offset)
+    """Track pelvis height above the terrain, independent of swinging feet."""
+    height = root_position_z - ground_height
     return exp(-((height - target) / sigma) ** 2)
 
 
 def feet_clearance(
-    foot_positions: Any,
-    swing_mask: Any,
+    foot_heights: Any,
+    target_heights: Any,
     command: Any | None = None,
     *,
-    target: float = 0.06,
-    foot_offset: float = 0.0569,
+    contact: Any,
+    current_contact_time: Any,
+    support_time: float = 0.04,
+    min_clearance: float = 0.02,
     sigma: float = 0.025,
     command_threshold: float = 0.1,
 ) -> Any:
-    """Smoothly reward the swing foot for reaching a safe clearance.
+    """Follow a swing arc while the opposite foot provides sustained support."""
 
-    A phase-clock swing target is meaningful only for a moving command. When
-    the command is zero, both feet should remain planted for stability.
-    """
-
-    foot_z = foot_positions[..., 2] - foot_offset
-    reward = exp(-((foot_z - target) / sigma) ** 2)
-    value = sum_axis(reward * swing_mask, axis=-1)
+    supported = contact[:, [1, 0]] & (current_contact_time[:, [1, 0]] + 1e-7 >= support_time)
+    swing = (target_heights > 0.0) & ~contact & supported
+    # A foot near the floor must not collect full credit at the endpoints of
+    # the arc; smoothly increase credit as actual clearance develops.
+    lift = clip(foot_heights / maximum(target_heights, min_clearance), 0.0, 1.0)
+    reward = exp(-((foot_heights - target_heights) / sigma) ** 2) * lift
+    value = sum_axis(reward * swing, axis=-1)
     if command is None:
         return value
     moving = norm(command[..., :2]) > command_threshold

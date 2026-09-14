@@ -1,0 +1,30 @@
+{
+  "method": "Re-score the same flat baseline trajectory; contact booleans encode the original 1 N threshold.",
+  "valid_env_seconds": 173.25999450683594,
+  "comparison": {
+    "track_lin_vel_xy_exp": {
+      "before_per_second": 1.1388192176818848,
+      "after_per_second": 0.8655522465705872
+    },
+    "feet_air_time": {
+      "before_per_second": 0.0,
+      "after_per_second": 0.0
+    },
+    "feet_contact_number": {
+      "before_per_second": 0.17234358191490173,
+      "after_per_second": -0.5398821830749512
+    },
+    "feet_flight": {
+      "before_per_second": 0.0,
+      "after_per_second": -0.039218515157699585
+    },
+    "base_height": {
+      "before_per_second": 0.4878638982772827,
+      "after_per_second": 0.4848926067352295
+    },
+    "feet_clearance": {
+      "before_per_second": 0.0010154092451557517,
+      "after_per_second": 0.003021698445081711
+    }
+  }
+}

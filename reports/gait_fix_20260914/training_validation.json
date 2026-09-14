@@ -1,0 +1,100 @@
+{
+  "run": "/tmp/purerl-gait-fix-validation/tienkung_flat/2026-09-14_11-42-40_gait_fix_smoke_seed5",
+  "checkpoint": "/tmp/purerl-gait-fix-validation/tienkung_flat/2026-09-14_11-42-40_gait_fix_smoke_seed5/model_99.pt",
+  "initial_checkpoint": "logs/rsl_rl/tienkung_flat/2026-09-13_11-35-53_flat_baseline/model_10000.pt",
+  "num_envs": 256,
+  "iterations": 100,
+  "transitions": 1536000,
+  "actor_and_critic_input_dim": 261,
+  "all_model_tensors_finite": true,
+  "optimizer_and_policy_metrics_finite": true,
+  "logging_note": "Iteration 13 completed no episodes, exposing empty-mean NaNs in episode metrics. The adapter now omits empty episode logs; covered by a real RSL runner regression. Historical logs are retained unmodified.",
+  "metrics": {
+    "Train/mean_reward": {
+      "first_10_mean": -4.672547388076782,
+      "last_10_mean": 24.381215476989745,
+      "last": 28.316728591918945,
+      "empty_episode_log_steps": []
+    },
+    "Train/mean_episode_length": {
+      "first_10_mean": 73.08699970245361,
+      "last_10_mean": 989.752001953125,
+      "last": 1070.72998046875,
+      "empty_episode_log_steps": []
+    },
+    "Loss/value_function": {
+      "first_10_mean": 0.7938656829297542,
+      "last_10_mean": 0.07417330294847488,
+      "last": 0.04787886142730713,
+      "empty_episode_log_steps": []
+    },
+    "Loss/surrogate": {
+      "first_10_mean": -0.002942889617406763,
+      "last_10_mean": 0.0004391600494273007,
+      "last": 0.0012569972313940525,
+      "empty_episode_log_steps": []
+    },
+    "Policy/mean_noise_std": {
+      "first_10_mean": 0.44940987825393675,
+      "last_10_mean": 0.44998658895492555,
+      "last": 0.4500132203102112,
+      "empty_episode_log_steps": []
+    },
+    "Gait/single_support_fraction": {
+      "first_10_mean": 0.2733745276927948,
+      "last_10_mean": 0.21873862743377687,
+      "last": 0.21123851835727692,
+      "empty_episode_log_steps": [
+        13
+      ]
+    },
+    "Gait/flight_fraction": {
+      "first_10_mean": 0.10527134984731674,
+      "last_10_mean": 0.06994249373674392,
+      "last": 0.07432197034358978,
+      "empty_episode_log_steps": [
+        13
+      ]
+    },
+    "Gait/phase_match_fraction": {
+      "first_10_mean": 0.11228996738791466,
+      "last_10_mean": 0.12021251395344734,
+      "last": 0.11845287680625916,
+      "empty_episode_log_steps": [
+        13
+      ]
+    },
+    "Gait/swing_clearance_m": {
+      "first_10_mean": 0.011070150742307305,
+      "last_10_mean": 0.0024135617655701934,
+      "last": 0.0018928610952571034,
+      "empty_episode_log_steps": [
+        13
+      ]
+    },
+    "Gait/valid_landing_rate_hz": {
+      "first_10_mean": 0.04017276167869568,
+      "last_10_mean": 0.006357440538704395,
+      "last": 0.004475478082895279,
+      "empty_episode_log_steps": [
+        13
+      ]
+    },
+    "Gait/valid_landing_fraction": {
+      "first_10_mean": 0.004322035959921778,
+      "last_10_mean": 0.0007503360538976267,
+      "last": 0.0003813882649410516,
+      "empty_episode_log_steps": [
+        13
+      ]
+    },
+    "Gait/xy_velocity_rmse": {
+      "first_10_mean": 0.5735242336988449,
+      "last_10_mean": 0.2825219452381134,
+      "last": 0.21391354501247406,
+      "empty_episode_log_steps": [
+        13
+      ]
+    }
+  }
+}

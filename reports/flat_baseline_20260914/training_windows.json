@@ -1,0 +1,38 @@
+{
+  "(0, 1000)": {
+    "Train/mean_reward": 25.26534577884525,
+    "Train/mean_episode_length": 778.7240490722656,
+    "Termination/time_out": 0.5628804891720647,
+    "Episode/feet_air_time": 0.0025843450096581363,
+    "Episode/feet_clearance": 0.022791892010718583,
+    "Episode/feet_contact_number": 1.568879038337618,
+    "Episode/base_height": 7.50661774148792,
+    "Episode/track_lin_vel_xy_exp": 17.49517164453864,
+    "Episode/feet_slide": -1.2418163176327943,
+    "Episode/lin_vel_z_l2": -0.23657803452946247
+  },
+  "(4500, 5000)": {
+    "Train/mean_reward": 41.941578971862796,
+    "Train/mean_episode_length": 1109.2684189453125,
+    "Termination/time_out": 0.8477457844018936,
+    "Episode/feet_air_time": 0.0019270976846601116,
+    "Episode/feet_clearance": 0.01797755839303136,
+    "Episode/feet_contact_number": 2.2354568629264833,
+    "Episode/base_height": 10.722088092803956,
+    "Episode/track_lin_vel_xy_exp": 26.44898434829712,
+    "Episode/feet_slide": -1.896151014328003,
+    "Episode/lin_vel_z_l2": -0.3874306396842003
+  },
+  "(9500, 10001)": {
+    "Train/mean_reward": 49.919714876277716,
+    "Train/mean_episode_length": 1168.7668851749627,
+    "Termination/time_out": 0.9431813045176204,
+    "Episode/feet_air_time": 0.001220508717602996,
+    "Episode/feet_clearance": 0.02331788797013298,
+    "Episode/feet_contact_number": 2.648108374334857,
+    "Episode/base_height": 11.535833474880683,
+    "Episode/track_lin_vel_xy_exp": 30.176333924253544,
+    "Episode/feet_slide": -1.2058663487196444,
+    "Episode/lin_vel_z_l2": -0.4673039318915613
+  }
+}

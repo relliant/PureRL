@@ -37,6 +37,10 @@ class RslRlVecEnvWrapper:
         observations, rewards, terminated, truncated, extras = self.env.step(actions)
         dones = terminated | truncated
         extras["time_outs"] = truncated
+        # RSL averages every collected episode tensor. Publishing only empty
+        # tensors for an entire rollout produces NaN episode/gait metrics.
+        if "terminal_env_ids" in extras and len(extras["terminal_env_ids"]) == 0:
+            extras.pop("episode", None)
         return self._to_tensor_dict(observations), rewards, dones, extras
 
     def close(self) -> None:

@@ -106,6 +106,7 @@ commands:
   resampling_time_range: [1000.0, 1000.0]
   heading_command: false
   heading_control_stiffness: 0.5
+  lin_vel_tracking_std: 0.35
   heading_env_ratio: 0.0
   standing_env_ratio: 0.0
   ranges:
@@ -165,10 +166,11 @@ rewards:
   - {name: joint_deviation_hip, weight: -0.1, is_event: false}
   - {name: joint_deviation_arms, weight: -0.05, is_event: false}
   - {name: stand_still, weight: -0.2, is_event: false}
-  - {name: feet_contact_number, weight: 0.35, is_event: false}
+  - {name: feet_contact_number, weight: 1.0, is_event: false}
+  - {name: feet_flight, weight: -1.0, is_event: false}
   - {name: feet_distance, weight: 0.1, is_event: false}
   - {name: base_height, weight: 0.5, is_event: false}
-  - {name: feet_clearance, weight: 0.25, is_event: false}
+  - {name: feet_clearance, weight: 0.5, is_event: false}
 gait:
   cycle_time: 0.5
   contact_threshold: 1.0
@@ -176,7 +178,12 @@ gait:
   air_time_threshold: 0.12
   foot_min_dist: 0.2
   foot_max_dist: 0.5
-  target_feet_height: 0.06
+  target_feet_height: 0.04
   foot_height_offset: 0.0569
   clearance_sigma: 0.025
   base_height_sigma: 0.05
+  double_support_fraction: 0.2
+  contact_release_time: 0.01
+  min_phase_time: 0.04
+  flight_grace_time: 0.01
+  min_clearance: 0.02

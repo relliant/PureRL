@@ -1,0 +1,94 @@
+{
+  "warmup_excluded_s": 2.0,
+  "valid_env_seconds": 170.96,
+  "valid_landing_rate_hz": 0.0,
+  "contact_at_50hz": {
+    "double_support_fraction": 0.7849789424426766,
+    "single_support_fraction": 0.1987599438465138,
+    "flight_fraction": 0.016261113710809547
+  },
+  "filtered_contact_at_50hz": {
+    "double_support_fraction": 0.7849789424426766,
+    "single_support_fraction": 0.1987599438465138,
+    "flight_fraction": 0.016261113710809547
+  },
+  "contact_at_200hz": {
+    "double_support_fraction": 0.7177409920449228,
+    "single_support_fraction": 0.19969583528310716,
+    "flight_fraction": 0.08256317267197005
+  },
+  "correct_support_during_single_support_target_fraction": 0.21099575961397865,
+  "terrain_relative_foot_height_m_percentiles_5_50_95": [
+    [
+      9.34116542339325e-05,
+      9.294971823692322e-05
+    ],
+    [
+      9.836070239543915e-05,
+      0.00040738657116889954
+    ],
+    [
+      0.0043555473908782,
+      0.004375203885138034
+    ]
+  ],
+  "foot_height_above_3cm_fraction": 0.0011113710809546092,
+  "root_height_m_percentiles_5_50_95": [
+    0.8942302942276001,
+    0.8984248042106628,
+    0.9022259593009949
+  ],
+  "mean_velocity_yaw": [
+    0.23184360563755035,
+    -0.01385569479316473,
+    0.023178955540060997
+  ],
+  "xy_velocity_rmse_mps": 0.28654247522354126,
+  "body_vertical_velocity_rms_mps": 0.20410744845867157,
+  "landing_air_time_s_percentiles_50_95_99": [
+    0.02499999850988388,
+    0.044999994337558746,
+    0.04999999329447746
+  ],
+  "landings_with_air_time_over_threshold_fraction": 0.0,
+  "simultaneous_5ms_landings_fraction": 0.08198489751887811,
+  "mean_weighted_reward_per_second": {
+    "termination_penalty": -0.02339728525839746,
+    "track_lin_vel_xy_exp": 0.8180963806807995,
+    "track_ang_vel_z_exp": 0.7352176122367382,
+    "lin_vel_z_l2": -0.0208299228688702,
+    "ang_vel_xy_l2": -0.05438767257146537,
+    "flat_orientation_l2": -0.060989020857959986,
+    "dof_torques_l2": -0.13377286959439516,
+    "dof_acc_l2": -0.015840640116948634,
+    "action_rate_l2": -0.06626381073147058,
+    "feet_air_time": 0.0,
+    "feet_slide": -0.09482376626692712,
+    "undesired_contacts": 0.0,
+    "dof_pos_limits": -2.3527029213710193e-07,
+    "joint_deviation_hip": -0.03239837824366987,
+    "joint_deviation_arms": -0.10817070724442601,
+    "stand_still": 0.0,
+    "feet_contact_number": -0.5266728810966015,
+    "feet_flight": -0.014798781194258481,
+    "feet_distance": 0.09125744109041989,
+    "base_height": 0.48422939144074917,
+    "feet_clearance": 0.0033439151593483984
+  },
+  "termination_counts": {
+    "time_out": 4,
+    "base_contact": 4,
+    "bad_orientation": 2
+  },
+  "checkpoint": "/tmp/purerl-gait-fix-validation/tienkung_flat/2026-09-14_11-42-40_gait_fix_smoke_seed5/model_99.pt",
+  "num_envs": 8,
+  "steps": 1200,
+  "seed": 5,
+  "command": [
+    0.5,
+    0.0,
+    0.0
+  ],
+  "setup": "Flat-Play preset, deterministic policy, LiDAR disabled; startup/reset randomization retained",
+  "control": "checkpoint mean action"
+}

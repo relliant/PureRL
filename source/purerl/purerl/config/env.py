@@ -130,6 +130,7 @@ class CommandCfg(ConfigMixin):
     heading_control_stiffness: float = 0.5
     heading_env_ratio: float = 1.0
     standing_env_ratio: float = 0.1
+    lin_vel_tracking_std: float = 0.35
     ranges: VelocityRangesCfg = field(default_factory=VelocityRangesCfg)
 
 
@@ -174,8 +175,13 @@ class GaitCfg(ConfigMixin):
     foot_max_dist: float = 0.50       # 步宽上限 [m]
     target_feet_height: float = 0.06  # 摆动脚目标离地高度 [m]
     foot_height_offset: float = 0.0569  # 脚 body(ankle_roll) 原点到脚底距离 [m]
-    clearance_sigma: float = 0.025    # 摆脚高度奖励的平滑尺度 [m]
-    base_height_sigma: float = 0.05   # 躯干高度奖励的平滑尺度 [m]
+    clearance_sigma: float = 0.025  # 摆脚高度奖励的平滑尺度 [m]
+    base_height_sigma: float = 0.05  # 躯干高度奖励的平滑尺度 [m]
+    double_support_fraction: float = 0.2  # 双支撑占完整周期的比例
+    contact_release_time: float = 0.01  # 接触力短暂丢失的容忍时间 [s]
+    min_phase_time: float = 0.04  # 有效支撑/摆动的最小持续时间 [s]
+    flight_grace_time: float = 0.01  # 无支撑惩罚的容忍时间 [s]
+    min_clearance: float = 0.02  # 有效抬脚的高度尺度 [m]
 
 
 ROUGH_REWARD_TERMS = (
@@ -195,10 +201,11 @@ ROUGH_REWARD_TERMS = (
     RewardTermCfg("joint_deviation_hip", -0.1),
     RewardTermCfg("joint_deviation_arms", -0.05),
     RewardTermCfg("stand_still", -0.2),
-    RewardTermCfg("feet_contact_number", 0.35),
+    RewardTermCfg("feet_contact_number", 1.0),
+    RewardTermCfg("feet_flight", -1.0),
     RewardTermCfg("feet_distance", 0.1),
     RewardTermCfg("base_height", 0.5),
-    RewardTermCfg("feet_clearance", 0.25),
+    RewardTermCfg("feet_clearance", 0.5),
 )
 
 
@@ -363,7 +370,11 @@ class EnvCfg(ConfigMixin):
             raise ValueError("Command heading_env_ratio must be between zero and one")
         if not 0.0 <= self.commands.standing_env_ratio <= 1.0:
             raise ValueError("Command standing_env_ratio must be between zero and one")
+        if not math.isfinite(self.commands.lin_vel_tracking_std) or self.commands.lin_vel_tracking_std <= 0.0:
+            raise ValueError("Command lin_vel_tracking_std must be finite and positive")
         gait = self.gait
+        if any(not math.isfinite(value) for value in gait.to_dict().values()):
+            raise ValueError("Gait parameters must be finite")
         if gait.cycle_time <= 0.0 or gait.contact_threshold < 0.0:
             raise ValueError("Gait cycle time and contact threshold must be non-negative/positive")
         if gait.command_threshold < 0.0 or gait.air_time_threshold < 0.0:
@@ -374,6 +385,13 @@ class EnvCfg(ConfigMixin):
             raise ValueError("Gait foot heights must be non-negative")
         if gait.clearance_sigma <= 0.0 or gait.base_height_sigma <= 0.0:
             raise ValueError("Gait reward smoothing scales must be positive")
+        if not 0.0 <= gait.double_support_fraction < 1.0:
+            raise ValueError("Gait double_support_fraction must be in [0, 1)")
+        swing_time = 0.5 * gait.cycle_time * (1.0 - gait.double_support_fraction)
+        if not 0.0 <= gait.contact_release_time < gait.min_phase_time <= gait.air_time_threshold < swing_time:
+            raise ValueError("Gait times must satisfy release < min_phase <= air_time_threshold < swing duration")
+        if gait.flight_grace_time < 0.0 or not 0.0 < gait.min_clearance <= gait.target_feet_height:
+            raise ValueError("Gait flight grace/clearance bounds are invalid")
         scan_x, scan_y = self.sensors.height_scan_size
         scan_points = (round(scan_x / self.sensors.height_scan_resolution) + 1) * (
             round(scan_y / self.sensors.height_scan_resolution) + 1
@@ -387,13 +405,8 @@ class EnvCfg(ConfigMixin):
             if abs(total_proportion - 1.0) > 1.0e-6:
                 raise ValueError("Terrain patch proportions must sum to one")
             patch_names = {patch.name for patch in self.terrain.patches}
-            if (
-                self.terrain.selected_patch is not None
-                and self.terrain.selected_patch not in patch_names
-            ):
-                raise ValueError(
-                    f"Selected terrain patch does not exist: {self.terrain.selected_patch}"
-                )
+            if self.terrain.selected_patch is not None and self.terrain.selected_patch not in patch_names:
+                raise ValueError(f"Selected terrain patch does not exist: {self.terrain.selected_patch}")
             if self.terrain.selected_level is not None and not (
                 0 <= self.terrain.selected_level < self.terrain.num_rows
             ):

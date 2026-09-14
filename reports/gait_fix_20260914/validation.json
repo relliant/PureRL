@@ -1,0 +1,234 @@
+{
+  "tests": {
+    "passed": 138,
+    "skipped": 1
+  },
+  "lint": "passed",
+  "diff_check": "passed",
+  "observation_dim": 261,
+  "reward_rescoring": {
+    "method": "Re-score the same flat baseline trajectory; contact booleans encode the original 1 N threshold.",
+    "valid_env_seconds": 173.25999450683594,
+    "comparison": {
+      "track_lin_vel_xy_exp": {
+        "before_per_second": 1.1388192176818848,
+        "after_per_second": 0.8655522465705872
+      },
+      "feet_air_time": {
+        "before_per_second": 0.0,
+        "after_per_second": 0.0
+      },
+      "feet_contact_number": {
+        "before_per_second": 0.17234358191490173,
+        "after_per_second": -0.5398821830749512
+      },
+      "feet_flight": {
+        "before_per_second": 0.0,
+        "after_per_second": -0.039218515157699585
+      },
+      "base_height": {
+        "before_per_second": 0.4878638982772827,
+        "after_per_second": 0.4848926067352295
+      },
+      "feet_clearance": {
+        "before_per_second": 0.0010154092451557517,
+        "after_per_second": 0.003021698445081711
+      }
+    }
+  },
+  "training": {
+    "run": "/tmp/purerl-gait-fix-validation/tienkung_flat/2026-09-14_11-42-40_gait_fix_smoke_seed5",
+    "checkpoint": "/tmp/purerl-gait-fix-validation/tienkung_flat/2026-09-14_11-42-40_gait_fix_smoke_seed5/model_99.pt",
+    "initial_checkpoint": "logs/rsl_rl/tienkung_flat/2026-09-13_11-35-53_flat_baseline/model_10000.pt",
+    "num_envs": 256,
+    "iterations": 100,
+    "transitions": 1536000,
+    "actor_and_critic_input_dim": 261,
+    "all_model_tensors_finite": true,
+    "optimizer_and_policy_metrics_finite": true,
+    "logging_note": "Iteration 13 completed no episodes, exposing empty-mean NaNs in episode metrics. The adapter now omits empty episode logs; covered by a real RSL runner regression. Historical logs are retained unmodified.",
+    "metrics": {
+      "Train/mean_reward": {
+        "first_10_mean": -4.672547388076782,
+        "last_10_mean": 24.381215476989745,
+        "last": 28.316728591918945,
+        "empty_episode_log_steps": []
+      },
+      "Train/mean_episode_length": {
+        "first_10_mean": 73.08699970245361,
+        "last_10_mean": 989.752001953125,
+        "last": 1070.72998046875,
+        "empty_episode_log_steps": []
+      },
+      "Loss/value_function": {
+        "first_10_mean": 0.7938656829297542,
+        "last_10_mean": 0.07417330294847488,
+        "last": 0.04787886142730713,
+        "empty_episode_log_steps": []
+      },
+      "Loss/surrogate": {
+        "first_10_mean": -0.002942889617406763,
+        "last_10_mean": 0.0004391600494273007,
+        "last": 0.0012569972313940525,
+        "empty_episode_log_steps": []
+      },
+      "Policy/mean_noise_std": {
+        "first_10_mean": 0.44940987825393675,
+        "last_10_mean": 0.44998658895492555,
+        "last": 0.4500132203102112,
+        "empty_episode_log_steps": []
+      },
+      "Gait/single_support_fraction": {
+        "first_10_mean": 0.2733745276927948,
+        "last_10_mean": 0.21873862743377687,
+        "last": 0.21123851835727692,
+        "empty_episode_log_steps": [
+          13
+        ]
+      },
+      "Gait/flight_fraction": {
+        "first_10_mean": 0.10527134984731674,
+        "last_10_mean": 0.06994249373674392,
+        "last": 0.07432197034358978,
+        "empty_episode_log_steps": [
+          13
+        ]
+      },
+      "Gait/phase_match_fraction": {
+        "first_10_mean": 0.11228996738791466,
+        "last_10_mean": 0.12021251395344734,
+        "last": 0.11845287680625916,
+        "empty_episode_log_steps": [
+          13
+        ]
+      },
+      "Gait/swing_clearance_m": {
+        "first_10_mean": 0.011070150742307305,
+        "last_10_mean": 0.0024135617655701934,
+        "last": 0.0018928610952571034,
+        "empty_episode_log_steps": [
+          13
+        ]
+      },
+      "Gait/valid_landing_rate_hz": {
+        "first_10_mean": 0.04017276167869568,
+        "last_10_mean": 0.006357440538704395,
+        "last": 0.004475478082895279,
+        "empty_episode_log_steps": [
+          13
+        ]
+      },
+      "Gait/valid_landing_fraction": {
+        "first_10_mean": 0.004322035959921778,
+        "last_10_mean": 0.0007503360538976267,
+        "last": 0.0003813882649410516,
+        "empty_episode_log_steps": [
+          13
+        ]
+      },
+      "Gait/xy_velocity_rmse": {
+        "first_10_mean": 0.5735242336988449,
+        "last_10_mean": 0.2825219452381134,
+        "last": 0.21391354501247406,
+        "empty_episode_log_steps": [
+          13
+        ]
+      }
+    }
+  },
+  "evaluation": {
+    "warmup_excluded_s": 2.0,
+    "valid_env_seconds": 170.96,
+    "valid_landing_rate_hz": 0.0,
+    "contact_at_50hz": {
+      "double_support_fraction": 0.7849789424426766,
+      "single_support_fraction": 0.1987599438465138,
+      "flight_fraction": 0.016261113710809547
+    },
+    "filtered_contact_at_50hz": {
+      "double_support_fraction": 0.7849789424426766,
+      "single_support_fraction": 0.1987599438465138,
+      "flight_fraction": 0.016261113710809547
+    },
+    "contact_at_200hz": {
+      "double_support_fraction": 0.7177409920449228,
+      "single_support_fraction": 0.19969583528310716,
+      "flight_fraction": 0.08256317267197005
+    },
+    "correct_support_during_single_support_target_fraction": 0.21099575961397865,
+    "terrain_relative_foot_height_m_percentiles_5_50_95": [
+      [
+        9.34116542339325e-05,
+        9.294971823692322e-05
+      ],
+      [
+        9.836070239543915e-05,
+        0.00040738657116889954
+      ],
+      [
+        0.0043555473908782,
+        0.004375203885138034
+      ]
+    ],
+    "foot_height_above_3cm_fraction": 0.0011113710809546092,
+    "root_height_m_percentiles_5_50_95": [
+      0.8942302942276001,
+      0.8984248042106628,
+      0.9022259593009949
+    ],
+    "mean_velocity_yaw": [
+      0.23184360563755035,
+      -0.01385569479316473,
+      0.023178955540060997
+    ],
+    "xy_velocity_rmse_mps": 0.28654247522354126,
+    "body_vertical_velocity_rms_mps": 0.20410744845867157,
+    "landing_air_time_s_percentiles_50_95_99": [
+      0.02499999850988388,
+      0.044999994337558746,
+      0.04999999329447746
+    ],
+    "landings_with_air_time_over_threshold_fraction": 0.0,
+    "simultaneous_5ms_landings_fraction": 0.08198489751887811,
+    "mean_weighted_reward_per_second": {
+      "termination_penalty": -0.02339728525839746,
+      "track_lin_vel_xy_exp": 0.8180963806807995,
+      "track_ang_vel_z_exp": 0.7352176122367382,
+      "lin_vel_z_l2": -0.0208299228688702,
+      "ang_vel_xy_l2": -0.05438767257146537,
+      "flat_orientation_l2": -0.060989020857959986,
+      "dof_torques_l2": -0.13377286959439516,
+      "dof_acc_l2": -0.015840640116948634,
+      "action_rate_l2": -0.06626381073147058,
+      "feet_air_time": 0.0,
+      "feet_slide": -0.09482376626692712,
+      "undesired_contacts": 0.0,
+      "dof_pos_limits": -2.3527029213710193e-07,
+      "joint_deviation_hip": -0.03239837824366987,
+      "joint_deviation_arms": -0.10817070724442601,
+      "stand_still": 0.0,
+      "feet_contact_number": -0.5266728810966015,
+      "feet_flight": -0.014798781194258481,
+      "feet_distance": 0.09125744109041989,
+      "base_height": 0.48422939144074917,
+      "feet_clearance": 0.0033439151593483984
+    },
+    "termination_counts": {
+      "time_out": 4,
+      "base_contact": 4,
+      "bad_orientation": 2
+    },
+    "checkpoint": "/tmp/purerl-gait-fix-validation/tienkung_flat/2026-09-14_11-42-40_gait_fix_smoke_seed5/model_99.pt",
+    "num_envs": 8,
+    "steps": 1200,
+    "seed": 5,
+    "command": [
+      0.5,
+      0.0,
+      0.0
+    ],
+    "setup": "Flat-Play preset, deterministic policy, LiDAR disabled; startup/reset randomization retained",
+    "control": "checkpoint mean action"
+  },
+  "outcome": "Reward implementation and training workflow verified. The 100-iteration fine-tune did not establish walking; valid alternating landing rate remains zero. A new full training run is required."
+}
